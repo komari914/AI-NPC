@@ -9,8 +9,8 @@ using UnityEngine.Networking;
 public class VoiceInputManager : MonoBehaviour
 {
     [Header("API Settings")]
-    [Tooltip("OpenAI API key for Whisper (Speech-to-Text)")]
-    public string openAIApiKey = "";
+    [Tooltip("ElevenLabs API key (xi-api-key) for Speech-to-Text (Scribe)")]
+    public string elevenLabsApiKey = "";
 
     [Header("Recording Settings")]
     [Tooltip("Maximum recording duration in seconds")]
@@ -45,8 +45,8 @@ public class VoiceInputManager : MonoBehaviour
     private bool isProcessing = false;
     private float recordingStartTime;
 
-    // API endpoint
-    private const string WhisperEndpoint = "https://api.openai.com/v1/audio/transcriptions";
+    // ElevenLabs STT endpoint (Scribe)
+    private const string STTEndpoint = "https://api.elevenlabs.io/v1/speech-to-text";
 
     void Start()
     {
@@ -207,10 +207,10 @@ public class VoiceInputManager : MonoBehaviour
 
     IEnumerator TranscribeAudio(AudioClip clip)
     {
-        if (string.IsNullOrWhiteSpace(openAIApiKey))
+        if (string.IsNullOrWhiteSpace(elevenLabsApiKey))
         {
             UpdateStatus("Error: API key not set");
-            Debug.LogError("[VoiceInput] OpenAI API key is empty!");
+            Debug.LogError("[VoiceInput] ElevenLabs API key is empty!");
             yield break;
         }
 
@@ -220,15 +220,14 @@ public class VoiceInputManager : MonoBehaviour
         // Convert AudioClip to WAV bytes
         byte[] wavData = ConvertAudioClipToWav(clip);
 
-        // Create multipart form data
+        // ElevenLabs Scribe multipart form
         WWWForm form = new WWWForm();
         form.AddBinaryData("file", wavData, "audio.wav", "audio/wav");
-        form.AddField("model", "whisper-1");
-        form.AddField("language", "en"); // English only
+        form.AddField("model_id", "scribe_v1");
 
-        using (UnityWebRequest request = UnityWebRequest.Post(WhisperEndpoint, form))
+        using (UnityWebRequest request = UnityWebRequest.Post(STTEndpoint, form))
         {
-            request.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
+            request.SetRequestHeader("xi-api-key", elevenLabsApiKey);
 
             yield return request.SendWebRequest();
 
@@ -241,7 +240,8 @@ public class VoiceInputManager : MonoBehaviour
 
                 try
                 {
-                    WhisperResponse whisperResponse = JsonUtility.FromJson<WhisperResponse>(response);
+                    // ElevenLabs Scribe returns { "text": "...", ... }
+                    STTResponse whisperResponse = JsonUtility.FromJson<STTResponse>(response);
                     string transcription = whisperResponse.text.Trim();
 
                     Debug.Log($"[VoiceInput] Transcription: {transcription}");
@@ -270,7 +270,7 @@ public class VoiceInputManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"[VoiceInput] Whisper API error: {request.error}\n{request.downloadHandler.text}");
+                Debug.LogError($"[VoiceInput] ElevenLabs STT error: {request.error}\n{request.downloadHandler.text}");
                 UpdateStatus($"Error: {request.error}");
             }
         }
@@ -381,8 +381,8 @@ public class VoiceInputManager : MonoBehaviour
     }
 
     [Serializable]
-    private class WhisperResponse
+    private class STTResponse
     {
-        public string text;
+        public string text;   // ElevenLabs Scribe response field
     }
 }

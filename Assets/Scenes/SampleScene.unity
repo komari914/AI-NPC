@@ -1054,10 +1054,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c4469c5258e67ea49b0cf657232f629a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TTSManager
-  openAIApiKey: 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
-  voiceType: alloy
-  model: tts-1
-  speed: 1
+  elevenLabsApiKey: sk_415bdaf751c918ff61cc678887e003687acf96d2da75f8fd
+  voiceId: 21m00Tcm4TlvDq8ikWAM
+  modelId: eleven_turbo_v2_5
+  stability: 0.5
+  similarityBoost: 0.75
+  style: 0
+  useSpeakerBoost: 1
   audioSource: {fileID: 0}
   volume: 1
   isSpeaking: 0
@@ -20221,7 +20224,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 168349d575127024faca97dcb512d2df, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VoiceInputManager
-  openAIApiKey: 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
+  elevenLabsApiKey: sk_415bdaf751c918ff61cc678887e003687acf96d2da75f8fd
   maxRecordingDuration: 10
   sampleRate: 44100
   recordKey: 36
