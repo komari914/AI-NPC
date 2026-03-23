@@ -1,0 +1,388 @@
+using System;
+using System.Collections;
+using System.IO;
+using TMPro;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.Networking;
+
+public class VoiceInputManager : MonoBehaviour
+{
+    [Header("API Settings")]
+    [Tooltip("OpenAI API key for Whisper (Speech-to-Text)")]
+    public string openAIApiKey = "";
+
+    [Header("Recording Settings")]
+    [Tooltip("Maximum recording duration in seconds")]
+    public float maxRecordingDuration = 10f;
+
+    [Tooltip("Recording sample rate")]
+    public int sampleRate = 44100;
+
+    [Header("Input Settings")]
+    [Tooltip("Key to hold for recording (default: V)")]
+    public Key recordKey = Key.V;
+
+    [Tooltip("Alternative: toggle recording mode")]
+    public bool toggleMode = false;
+
+    [Header("UI References")]
+    public GameObject recordingIndicator;
+    public TextMeshProUGUI recordingText;
+    public TextMeshProUGUI statusText;
+
+    [Header("References")]
+    public MentorNPC mentorNPC;
+
+    [Header("Audio Settings")]
+    public AudioSource audioSource;
+    public bool playbackRecording = false; // For debugging
+
+    // State
+    private bool isRecording = false;
+    private AudioClip recordedClip;
+    private string microphoneDevice;
+    private bool isProcessing = false;
+    private float recordingStartTime;
+
+    // API endpoint
+    private const string WhisperEndpoint = "https://api.openai.com/v1/audio/transcriptions";
+
+    void Start()
+    {
+        // Get default microphone
+        if (Microphone.devices.Length > 0)
+        {
+            microphoneDevice = Microphone.devices[0];
+            Debug.Log($"[VoiceInput] Using microphone: {microphoneDevice}");
+        }
+        else
+        {
+            Debug.LogError("[VoiceInput] No microphone found!");
+        }
+
+        // Setup audio source for playback (optional)
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+        }
+
+        HideRecordingIndicator();
+    }
+
+    void Update()
+    {
+        if (Keyboard.current == null) return;
+
+        // Only allow voice input in Voice modality
+        if (ScenarioManager.Instance != null &&
+            ScenarioManager.Instance.modality != ModalityType.Voice)
+        {
+            return;
+        }
+
+        if (toggleMode)
+        {
+            // Toggle mode: press once to start, press again to stop
+            if (Keyboard.current[recordKey].wasPressedThisFrame)
+            {
+                if (isRecording)
+                {
+                    StopRecording();
+                }
+                else
+                {
+                    StartRecording();
+                }
+            }
+        }
+        else
+        {
+            // Push-to-talk mode: hold to record
+            if (Keyboard.current[recordKey].wasPressedThisFrame)
+            {
+                StartRecording();
+            }
+            else if (Keyboard.current[recordKey].wasReleasedThisFrame)
+            {
+                StopRecording();
+            }
+        }
+
+        // Update recording time display
+        if (isRecording && recordingText != null)
+        {
+            float elapsed = Time.time - recordingStartTime;
+            recordingText.text = $"Recording... {elapsed:F1}s / {maxRecordingDuration:F0}s";
+
+            // Auto-stop if max duration reached
+            if (elapsed >= maxRecordingDuration)
+            {
+                StopRecording();
+            }
+        }
+    }
+
+    void StartRecording()
+    {
+        if (isRecording || isProcessing) return;
+
+        // Check NPC proximity before recording
+        if (mentorNPC != null && !mentorNPC.IsPlayerCloseEnough())
+        {
+            UpdateStatus("Move closer to the mentor first!");
+            Debug.Log("[VoiceInput] Recording blocked: player too far from NPC.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(microphoneDevice))
+        {
+            Debug.LogError("[VoiceInput] No microphone available!");
+            UpdateStatus("No microphone found!");
+            return;
+        }
+
+        Debug.Log("[VoiceInput] Starting recording...");
+        isRecording = true;
+        recordingStartTime = Time.time;
+
+        // Start recording
+        recordedClip = Microphone.Start(microphoneDevice, false, (int)maxRecordingDuration, sampleRate);
+
+        ShowRecordingIndicator();
+        UpdateStatus("Listening...");
+    }
+
+    void StopRecording()
+    {
+        if (!isRecording) return;
+
+        Debug.Log("[VoiceInput] Stopping recording...");
+        isRecording = false;
+
+        // Stop microphone
+        int lastSample = Microphone.GetPosition(microphoneDevice);
+        Microphone.End(microphoneDevice);
+
+        HideRecordingIndicator();
+
+        // Trim audio clip to actual recorded length
+        if (recordedClip != null && lastSample > 0)
+        {
+            AudioClip trimmedClip = TrimAudioClip(recordedClip, lastSample);
+
+            // Optional: playback for debugging
+            if (playbackRecording && audioSource != null)
+            {
+                audioSource.clip = trimmedClip;
+                audioSource.Play();
+            }
+
+            // Send to Whisper API
+            StartCoroutine(TranscribeAudio(trimmedClip));
+        }
+        else
+        {
+            Debug.LogWarning("[VoiceInput] No audio recorded");
+            UpdateStatus("No audio recorded");
+        }
+    }
+
+    AudioClip TrimAudioClip(AudioClip clip, int samples)
+    {
+        float[] data = new float[samples * clip.channels];
+        clip.GetData(data, 0);
+
+        AudioClip trimmed = AudioClip.Create(
+            clip.name + "_trimmed",
+            samples,
+            clip.channels,
+            clip.frequency,
+            false
+        );
+        trimmed.SetData(data, 0);
+
+        return trimmed;
+    }
+
+    IEnumerator TranscribeAudio(AudioClip clip)
+    {
+        if (string.IsNullOrWhiteSpace(openAIApiKey))
+        {
+            UpdateStatus("Error: API key not set");
+            Debug.LogError("[VoiceInput] OpenAI API key is empty!");
+            yield break;
+        }
+
+        isProcessing = true;
+        UpdateStatus("Processing...");
+
+        // Convert AudioClip to WAV bytes
+        byte[] wavData = ConvertAudioClipToWav(clip);
+
+        // Create multipart form data
+        WWWForm form = new WWWForm();
+        form.AddBinaryData("file", wavData, "audio.wav", "audio/wav");
+        form.AddField("model", "whisper-1");
+        form.AddField("language", "en"); // English only
+
+        using (UnityWebRequest request = UnityWebRequest.Post(WhisperEndpoint, form))
+        {
+            request.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
+
+            yield return request.SendWebRequest();
+
+            isProcessing = false;
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                string response = request.downloadHandler.text;
+                Debug.Log($"[VoiceInput] Whisper response: {response}");
+
+                try
+                {
+                    WhisperResponse whisperResponse = JsonUtility.FromJson<WhisperResponse>(response);
+                    string transcription = whisperResponse.text.Trim();
+
+                    Debug.Log($"[VoiceInput] Transcription: {transcription}");
+                    UpdateStatus($"You said: {transcription}");
+
+                    // Send to MentorNPC
+                    if (string.IsNullOrWhiteSpace(transcription))
+                    {
+                        Debug.LogWarning("[VoiceInput] Transcription was empty — nothing sent to NPC.");
+                    }
+                    else if (mentorNPC == null)
+                    {
+                        Debug.LogError("[VoiceInput] mentorNPC reference is null! Assign it in the Inspector.");
+                    }
+                    else
+                    {
+                        Debug.Log($"[VoiceInput] Sending transcription to MentorNPC: \"{transcription}\"");
+                        mentorNPC.TalkWithPlayerInput(transcription);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[VoiceInput] Failed to parse response: {e.Message}\n{response}");
+                    UpdateStatus("Error: Failed to process audio");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[VoiceInput] Whisper API error: {request.error}\n{request.downloadHandler.text}");
+                UpdateStatus($"Error: {request.error}");
+            }
+        }
+    }
+
+    byte[] ConvertAudioClipToWav(AudioClip clip)
+    {
+        float[] samples = new float[clip.samples * clip.channels];
+        clip.GetData(samples, 0);
+
+        Int16[] intData = new Int16[samples.Length];
+        Byte[] bytesData = new Byte[samples.Length * 2];
+
+        int rescaleFactor = 32767;
+
+        for (int i = 0; i < samples.Length; i++)
+        {
+            intData[i] = (short)(samples[i] * rescaleFactor);
+            Byte[] byteArr = BitConverter.GetBytes(intData[i]);
+            byteArr.CopyTo(bytesData, i * 2);
+        }
+
+        using (MemoryStream stream = new MemoryStream())
+        {
+            int hz = clip.frequency;
+            int channels = clip.channels;
+            int samples_count = samples.Length;
+
+            // Write WAV header
+            stream.Seek(0, SeekOrigin.Begin);
+
+            Byte[] riff = System.Text.Encoding.UTF8.GetBytes("RIFF");
+            stream.Write(riff, 0, 4);
+
+            Byte[] chunkSize = BitConverter.GetBytes(stream.Length - 8);
+            stream.Write(chunkSize, 0, 4);
+
+            Byte[] wave = System.Text.Encoding.UTF8.GetBytes("WAVE");
+            stream.Write(wave, 0, 4);
+
+            Byte[] fmt = System.Text.Encoding.UTF8.GetBytes("fmt ");
+            stream.Write(fmt, 0, 4);
+
+            Byte[] subChunk1 = BitConverter.GetBytes(16);
+            stream.Write(subChunk1, 0, 4);
+
+            UInt16 one = 1;
+            Byte[] audioFormat = BitConverter.GetBytes(one);
+            stream.Write(audioFormat, 0, 2);
+
+            Byte[] numChannels = BitConverter.GetBytes(channels);
+            stream.Write(numChannels, 0, 2);
+
+            Byte[] sampleRate = BitConverter.GetBytes(hz);
+            stream.Write(sampleRate, 0, 4);
+
+            Byte[] byteRate = BitConverter.GetBytes(hz * channels * 2);
+            stream.Write(byteRate, 0, 4);
+
+            UInt16 blockAlign = (ushort)(channels * 2);
+            stream.Write(BitConverter.GetBytes(blockAlign), 0, 2);
+
+            UInt16 bps = 16;
+            Byte[] bitsPerSample = BitConverter.GetBytes(bps);
+            stream.Write(bitsPerSample, 0, 2);
+
+            Byte[] datastring = System.Text.Encoding.UTF8.GetBytes("data");
+            stream.Write(datastring, 0, 4);
+
+            Byte[] subChunk2 = BitConverter.GetBytes(samples_count * channels * 2);
+            stream.Write(subChunk2, 0, 4);
+
+            stream.Write(bytesData, 0, bytesData.Length);
+
+            return stream.ToArray();
+        }
+    }
+
+    void ShowRecordingIndicator()
+    {
+        if (recordingIndicator != null)
+        {
+            recordingIndicator.SetActive(true);
+        }
+    }
+
+    void HideRecordingIndicator()
+    {
+        if (recordingIndicator != null)
+        {
+            recordingIndicator.SetActive(false);
+        }
+
+        if (recordingText != null)
+        {
+            recordingText.text = "Hold V to speak";
+        }
+    }
+
+    void UpdateStatus(string message)
+    {
+        if (statusText != null)
+        {
+            statusText.text = message;
+        }
+
+        Debug.Log($"[VoiceInput] Status: {message}");
+    }
+
+    [Serializable]
+    private class WhisperResponse
+    {
+        public string text;
+    }
+}
