@@ -44,14 +44,12 @@ public class CaseProgressManager : MonoBehaviour
     public void MarkOpeningFinished()
     {
         if (phase == CasePhase.Opening)
-            phase = CasePhase.Overview;
+            phase = CasePhase.Investigate;
     }
 
     public void MarkFirstMentorTalkFinished()
     {
         hasHadFirstMentorTalk = true;
-        if (phase == CasePhase.Overview)
-            phase = CasePhase.Investigate;
     }
 
     public void OnEvidenceInspected(string evidenceId, string description)
@@ -61,18 +59,22 @@ public class CaseProgressManager : MonoBehaviour
         inspected[evidenceId] = description ?? "";
 
         // 已结案则不再推进
-        if (phase == CasePhase.Resolved) return;
+        if (phase == CasePhase.Resolved || phase == CasePhase.FinalQuestion) return;
 
-        // 可选：发现关键线索时进入 FocusOnClue（如果你不想用可忽略）
+        // 发现关键线索时进入 FocusOnClue
         if (evidenceId == "A3")
         {
             currentFocusClueId = evidenceId;
-            if (phase != CasePhase.FinalQuestion) phase = CasePhase.FocusOnClue;
+            phase = CasePhase.FocusOnClue;
         }
+        // FinalQuestion 不再由证据触发，改为由计时器触发
+    }
 
-        // 如果证据已齐，进入 FinalQuestion（让玩家下结论）
-        if (IsReadyForFinal())
-            phase = CasePhase.FinalQuestion;
+    /// <summary>由计时器（倒计时警告）触发，进入最终阶段。</summary>
+    public void TriggerFinalQuestion()
+    {
+        if (phase == CasePhase.Resolved) return;
+        phase = CasePhase.FinalQuestion;
     }
 
     public bool HasClue(string evidenceId) => inspected.ContainsKey(evidenceId);

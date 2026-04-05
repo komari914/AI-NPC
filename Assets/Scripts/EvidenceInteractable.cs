@@ -9,6 +9,9 @@ public class EvidenceInteractable : MonoBehaviour
     [TextArea]
     public string evidenceDescription = "This is a piece of evidence.";
 
+    [Header("Model Preview")]
+    public GameObject previewModelPrefab; // 3D model shown in the inspection popup
+
     [Header("Visual Feedback")]
     public bool changeColorOnInspect = true;
     public Color inspectedColor = new Color(0.6f, 0.6f, 0.6f, 1f);
@@ -45,7 +48,7 @@ public class EvidenceInteractable : MonoBehaviour
 
         // Show popup panel with evidence details
         if (EvidencePopupUI.Instance != null)
-            EvidencePopupUI.Instance.Show(evidenceId, evidenceDescription);
+            EvidencePopupUI.Instance.Show(evidenceId, evidenceDescription, previewModelPrefab);
 
         // Notify progress manager
         if (CaseProgressManager.Instance != null)

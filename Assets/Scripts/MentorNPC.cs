@@ -88,19 +88,17 @@ Known Suspects:
 2. Project Manager — clashed with Daniel over budget authority and timeline blame.
 3. Junior Programmer — publicly belittled by Daniel; recently received a negative mid-cycle review threatening their probation.
 
-Evidence summary (all items):
-- A1: Alex's annotated design draft. Notes like 'this part was taken' confirm a credit dispute and long-term grievance.
-- A2: Alex's taxi receipt (9:47 PM departure). Missing the platform's Late Night Fee surcharge — compare with P2 to expose it as fabricated.
-- A3 [KEY]: Wi-Fi log. Alex's registered laptop reconnected to the office network at 10:23 PM, inside the death window. Directly contradicts A2.
-- P1: Meeting notes documenting a serious dispute between Daniel and the PM over budget.
-- P2: PM's taxi receipt (9:14 PM departure). Includes an itemised Late Night Fee — the standard surcharge for all rides after 9:00 PM. Exposes A2 as fake.
-- P3 [KEY]: Calendar confirmation + video call log. PM was in a verified remote meeting 10:02 PM–11:17 PM. Eliminates PM.
-- J1: Overtime log. Junior Programmer was clocked in past 11:00 PM — in the building during the death window.
-- J2 [KEY]: Version control commit log. JP submitted code at 10:08, 10:37, and 10:59 PM from the developer floor.
-- J3 [KEY]: Designer–JP chat log. Each commit was made in direct response to real-time requirement changes. JP could not have committed murder and returned to active coding within these intervals. Eliminates JP.
+IMPORTANT: You only know what the player has already inspected. The 'Inspected Evidence' list below is everything you and the player currently have access to. Do NOT reference, hint at, or discuss any evidence that is not in that list. If the player asks about something you have no evidence for, say you haven't found anything on that yet and suggest they keep looking.
 
-You are the player's mentor / team leader. Guide reasoning from evidence. Do not reveal the killer directly.
+You are the player's mentor / team leader. Guide reasoning from collected evidence only. Do not reveal the killer directly.
 ";
+
+    [Header("Evidence Threshold (to close the case)")]
+    [Tooltip("Evidence IDs considered 'key' — player must collect this many before the case can be solved.")]
+    public string[] keyEvidenceIds = { "A2", "A3", "P2", "P3", "J2", "J3" };
+
+    [Tooltip("How many key evidence items must be collected before the player can close the case.")]
+    public int minKeyEvidenceToConvict = 3;
 
     [Header("Fallback Question (used if no input UI is assigned)")]
     [TextArea(2, 6)]
@@ -115,6 +113,10 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
     private bool openingFinished = false;
     private string latestPlayerInput = "";
     private readonly List<ChatMessage> conversationHistory = new();
+
+    // Two-step accusation state:
+    // non-null = player has named a suspect, waiting for their evidence explanation
+    private string awaitingEvidenceForSuspect = null;
 
     void Start()
     {
@@ -132,6 +134,22 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
         }
 
         if (playOpeningOnStart && subtitleUI != null)
+            StartCoroutine(PlayOpeningRoutine());
+        else if (!playOpeningOnStart)
+        {
+            // Opening will be triggered manually by ControlsTutorialUI
+        }
+        else
+        {
+            openingFinished = true;
+            progress?.MarkOpeningFinished();
+        }
+    }
+
+    /// <summary>Called by ControlsTutorialUI after the player dismisses the controls panel.</summary>
+    public void StartOpeningManually()
+    {
+        if (subtitleUI != null)
             StartCoroutine(PlayOpeningRoutine());
         else
         {
@@ -269,17 +287,32 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
             DataRecorder.Instance.RecordConversation("Player", latestPlayerInput, inputMethod);
         }
 
-        // Final phase: use AI to evaluate player's conclusion semantically.
-        if (progress != null && progress.phase == CasePhase.FinalQuestion)
+        // FinalQuestion phase: player giving up → unresolved ending
+        if (progress != null && progress.phase == CasePhase.FinalQuestion
+            && awaitingEvidenceForSuspect == null
+            && LooksLikeGivingUp(latestPlayerInput))
         {
-            if (LooksLikeConclusion(latestPlayerInput))
-            {
-                subtitleUI.Show("Mentor: (evaluating your reasoning...)");
-                isBusy = true;
-                StartCoroutine(EvaluateConclusionWithAI(latestPlayerInput));
-                return;
-            }
-            // Not a conclusion yet → let AI guide them with questions.
+            TriggerUnresolvedEnding();
+            return;
+        }
+
+        // Step 2: player is explaining evidence for their accused suspect → evaluate
+        if (awaitingEvidenceForSuspect != null)
+        {
+            string combined = $"Suspect: {awaitingEvidenceForSuspect}. Evidence: {latestPlayerInput}";
+            awaitingEvidenceForSuspect = null;
+            subtitleUI.Show("Mentor: (evaluating your reasoning...)");
+            isBusy = true;
+            StartCoroutine(EvaluateConclusionWithAI(combined));
+            return;
+        }
+
+        // Step 1: player names a suspect → ask WHY, don't evaluate yet
+        if (LooksLikeConclusion(latestPlayerInput))
+        {
+            awaitingEvidenceForSuspect = ExtractSuspect(latestPlayerInput);
+            AskForEvidence(awaitingEvidenceForSuspect);
+            return;
         }
 
         string systemPrompt = GetSystemPromptByPersona();
@@ -306,7 +339,9 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
                 Debug.Log($"[CHAT] Mentor: {cleaned}");
 
                 // Append both turns to history
-                conversationHistory.Add(new ChatMessage("user",      userMessage));
+                // Store only the player's actual words (not the full context).
+                // Context is rebuilt fresh in every BuildUserMessage call.
+                conversationHistory.Add(new ChatMessage("user",      latestPlayerInput));
                 conversationHistory.Add(new ChatMessage("assistant", cleaned));
                 TrimHistory();
 
@@ -455,18 +490,20 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
                 case CasePhase.FocusOnClue:
                     phaseInstruction =
 @"Task (Evidence phase):
-- Use ONLY the inspected evidence list below.
-- Explain what the evidence implies for timeline/opportunity/motive.
-- Suggest 1–2 next evidence checks.
-- Do NOT finalize the culprit.";
+- Discuss ONLY the evidence listed under 'Inspected Evidence' below. Never mention evidence not in that list.
+- Explain what each collected item implies about timeline, opportunity, or motive.
+- If the player asks about something not yet found, say 'We haven't found anything on that yet — keep looking.'
+- If the player directly asks who the killer is (e.g. 'Is it Alex?', 'Did the PM do it?'), do NOT answer. Instead say: 'We're not ready to draw conclusions yet. Let's gather more evidence first.' Then suggest one concrete next step.
+- Do NOT finalize or confirm the culprit under any circumstances during this phase.";
                     break;
 
                 case CasePhase.FinalQuestion:
                     phaseInstruction =
-@"Task (Final phase):
-- Ask the player to name ONE suspect and explain WHY using evidence.
-- Ask 1 follow-up question to test their reasoning.
-- Do NOT confirm the correct answer unless the player states a clear conclusion.";
+@"Task (Final phase — time is running out):
+- You just asked the player if they have found the killer. They are responding now.
+- If they name a suspect, acknowledge and ask them to back it up with evidence.
+- If they say they haven't found the killer or don't know, respond with understanding and wrap up.
+- Do NOT confirm the correct answer. Keep the response brief (1–2 sentences).";
                     break;
             }
         }
@@ -482,28 +519,53 @@ You are the player's mentor / team leader. Guide reasoning from evidence. Do not
                + "Player: " + playerInput;
     }
 
+    // --- Evidence threshold helper ---
+    int CountKeyEvidenceCollected()
+    {
+        if (progress == null || keyEvidenceIds == null) return 0;
+        int count = 0;
+        foreach (var id in keyEvidenceIds)
+            if (progress.HasClue(id)) count++;
+        return count;
+    }
+
     // --- AI-based final answer evaluation ---
     IEnumerator EvaluateConclusionWithAI(string playerInput)
     {
+        // Check how many key evidence items the player has actually collected
+        int collected = CountKeyEvidenceCollected();
+        if (collected < minKeyEvidenceToConvict)
+        {
+            isBusy = false;
+            awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
+
+            string feedback = collected == 0
+                ? "That's an interesting lead, but you haven't collected enough evidence yet. Keep searching the scene."
+                : $"Good observation — that piece of evidence is relevant. But one clue isn't enough to close the case. You've found {collected} of the key pieces. Keep investigating.";
+
+            ShowMentorReply(feedback);
+            yield break;
+        }
+
         string evalSystemPrompt =
-@"You are the impartial judge of a murder mystery game. Evaluate the player's conclusion.
+@"You are the impartial judge of a murder mystery game. The player has collected enough evidence and is now explaining why Alex is the killer. Evaluate whether their explanation covers multiple evidence points — one clue alone is not sufficient.
 
 THE CORRECT ANSWER: Alex (Senior Systems Designer) committed the murder.
 
-Key evidence that supports this:
-- A3 (Wi-Fi Log): Alex's laptop reconnected to the office network at 10:23 PM — inside the 10–11 PM death window. Directly contradicts Alex's alibi.
-- A2 vs P2 (Receipt cross-reference): Alex's taxi receipt is missing the Late Night Fee surcharge that appears on all rides after 9:00 PM (confirmed by the PM's receipt P2). Alex's alibi is fabricated.
-- P3 (Remote Meeting Log): The Project Manager was on a verified video call 10:02–11:17 PM. Eliminated.
-- J2 + J3 (Commit log + Chat log): The Junior Programmer was actively coding in response to real-time designer instructions throughout the death window. Could not have committed the murder. Eliminated.
+Key evidence chains that prove Alex is guilty:
+- A3 (Wi-Fi Log): Alex's laptop reconnected at 10:23 PM — inside the death window. Disproves his alibi.
+- A2 vs P2 (Fake receipt): Alex's taxi receipt has no Late Night Fee surcharge, but all rides after 9 PM have this fee (confirmed by PM's receipt P2). Alex's alibi is fabricated.
+- P3 (PM alibi): PM was on a verified video call 10:02–11:17 PM. Eliminated.
+- J2 + J3 (JP alibi): Junior Programmer was actively coding throughout the death window. Eliminated.
 
 VERDICT RULES — choose exactly ONE:
-- VERDICT:CORRECT   → Player names Alex as the killer AND gives any reasoning touching the evidence (wifi, alibi, receipt, late night fee, timeline, fake receipt, or any of the above). Exact wording not required.
-- VERDICT:NEED_EVIDENCE → Player names Alex as the killer but gives NO reasoning or evidence at all (e.g. just 'Alex did it').
-- VERDICT:INCORRECT → Player names the wrong suspect, says Alex is innocent/cleared, or the logic is clearly backwards.
+- VERDICT:CORRECT    → Player accuses Alex AND references AT LEAST TWO distinct evidence points (e.g. both the fake receipt AND the wifi log, or the fake receipt AND an eliminated suspect). Single-clue explanations are NOT enough.
+- VERDICT:NEED_EVIDENCE → Player accuses Alex with only ONE piece of evidence, or explains vaguely without referencing specific clues.
+- VERDICT:INCORRECT  → Player accuses the wrong suspect, or their logic clears Alex.
 
 Respond in EXACTLY this two-line format:
 VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
-<One short in-character mentor sentence matching the verdict.>";
+<One short in-character mentor sentence — for CORRECT say the case is solved; for NEED_EVIDENCE name what additional evidence is still missing; for INCORRECT say the evidence doesn't hold up.>";
 
         bool done      = false;
         string verdict = "INCORRECT";
@@ -547,12 +609,20 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
 
         if (isCorrect)
         {
-            progress.MarkResolved();
+            progress?.MarkResolved();
             Debug.Log("[CASE] Resolved via AI judgment.");
         }
         else if (verdict == "NEED_EVIDENCE")
         {
-            Debug.Log("[CASE] Correct suspect but no evidence — NPC asking for reasoning.");
+            // Evidence too weak — keep waiting for better explanation
+            awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
+            Debug.Log("[CASE] Evidence insufficient — re-asking for evidence.");
+        }
+        else
+        {
+            // INCORRECT — clear accusation state, player goes back to investigating
+            awaitingEvidenceForSuspect = null;
+            Debug.Log("[CASE] Incorrect reasoning — back to investigating.");
         }
 
         string fullReply = "Mentor: " + mentorReply;
@@ -580,12 +650,149 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
         }
     }
 
+    // --- Shared reply display helper ---
+    void ShowMentorReply(string reply)
+    {
+        SetTalking(true);
+        if (IsVoiceModality() && ttsManager != null)
+        {
+            subtitleUI.ShowPersistent("Mentor: " + reply);
+            ttsManager.Speak(reply,
+                onComplete: () => { SetTalking(false); StartCoroutine(ClearSubtitleAfterDelay(1f)); },
+                onError:    _ => { SetTalking(false); subtitleUI?.Clear(); }
+            );
+        }
+        else
+        {
+            subtitleUI.Show("Mentor: " + reply);
+            StartCoroutine(StopTalkingAfterDelay(Mathf.Max(3f, reply.Length * 0.05f)));
+        }
+    }
+
+    // --- Two-step accusation helpers ---
+
+    void AskForEvidence(string suspect)
+    {
+        string reply = $"Interesting. What makes you think it's {suspect}? Walk me through the evidence.";
+        SetTalking(true);
+
+        if (IsVoiceModality() && ttsManager != null)
+        {
+            subtitleUI.ShowPersistent("Mentor: " + reply);
+            ttsManager.Speak(reply,
+                onComplete: () => { SetTalking(false); StartCoroutine(ClearSubtitleAfterDelay(0.5f)); },
+                onError:    _ => { SetTalking(false); subtitleUI?.Clear(); }
+            );
+        }
+        else
+        {
+            subtitleUI.Show("Mentor: " + reply);
+            StartCoroutine(StopTalkingAfterDelay(Mathf.Max(3f, reply.Length * 0.05f)));
+        }
+    }
+
+    string ExtractSuspect(string input)
+    {
+        string s = input.ToLowerInvariant();
+        if (s.Contains("alex"))                              return "Alex";
+        if (s.Contains("project manager") || s.Contains("pm")) return "the Project Manager";
+        if (s.Contains("junior") || s.Contains("jp"))       return "the Junior Programmer";
+        return "this suspect";
+    }
+
+    // --- FinalQuestion phase: proactive mentor prompt ---
+
+    /// <summary>Called by TimerManager when the warning fires. Mentor asks the player for their conclusion.</summary>
+    public void StartFinalPhasePrompt()
+    {
+        if (!openingFinished) return;
+        StartCoroutine(PlayFinalPhasePromptRoutine());
+    }
+
+    IEnumerator PlayFinalPhasePromptRoutine()
+    {
+        // Wait if NPC is mid-sentence
+        yield return new WaitUntil(() => !isBusy);
+
+        string prompt = "Time is almost up. Have you figured out who killed Daniel — and why?";
+        SetTalking(true);
+
+        if (IsVoiceModality() && ttsManager != null)
+        {
+            subtitleUI.ShowPersistent("Mentor: " + prompt);
+            bool done = false;
+            ttsManager.Speak(prompt,
+                onComplete: () => { done = true; },
+                onError:    _ => { done = true; }
+            );
+            yield return new WaitUntil(() => done);
+            subtitleUI.Clear();
+        }
+        else
+        {
+            subtitleUI.Show("Mentor: " + prompt);
+            yield return new WaitForSeconds(Mathf.Max(3f, prompt.Length * 0.05f));
+        }
+
+        SetTalking(false);
+    }
+
+    // --- Unresolved ending ---
+
+    void TriggerUnresolvedEnding()
+    {
+        if (DataRecorder.Instance != null)
+            DataRecorder.Instance.RecordFinalAnswer("(gave up)", false);
+
+        string reply = "Understood. We'll close the case for now. Good work today.";
+
+        SetTalking(true);
+        if (IsVoiceModality() && ttsManager != null)
+        {
+            subtitleUI.ShowPersistent("Mentor: " + reply);
+            ttsManager.Speak(reply,
+                onComplete: () => { SetTalking(false); ShowGameEnd(false); },
+                onError:    _ => { SetTalking(false); ShowGameEnd(false); }
+            );
+        }
+        else
+        {
+            subtitleUI.Show("Mentor: " + reply);
+            StartCoroutine(ShowGameEndAfterDelay(Mathf.Max(3f, reply.Length * 0.05f), false));
+        }
+    }
+
+    void ShowGameEnd(bool success)
+    {
+        float elapsed = TimerManager.Instance != null ? TimerManager.Instance.timeElapsed : 0f;
+        GameEndUI endUI = Object.FindFirstObjectByType<GameEndUI>();
+        string msg = success ? "Case solved!" : "Case closed — killer not identified.";
+        endUI?.ShowGameEnd(success, elapsed, msg);
+    }
+
+    IEnumerator ShowGameEndAfterDelay(float delay, bool success)
+    {
+        yield return new WaitForSeconds(delay);
+        SetTalking(false);
+        ShowGameEnd(success);
+    }
+
     // --- Final answer evaluation helpers ---
     bool LooksLikeConclusion(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return false;
         string s = input.ToLowerInvariant();
         return s.Contains("alex") || s.Contains("project manager") || s.Contains("pm") || s.Contains("junior");
+    }
+
+    bool LooksLikeGivingUp(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return false;
+        string s = input.ToLowerInvariant();
+        return s.Contains("not yet") || s.Contains("don't know") || s.Contains("no idea") ||
+               s.Contains("haven't") || s.Contains("give up") || s.Contains("no clue") ||
+               s.Contains("still looking") || s.Contains("can't figure") ||
+               s == "no" || s == "nope" || s == "idk";
     }
 
     bool IsCorrectConclusion(string input)

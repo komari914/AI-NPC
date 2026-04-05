@@ -49,16 +49,14 @@ public class SubtitleUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Show subtitle and keep it visible until manually cleared (for voice mode)
+    /// Show subtitle paged, then hold on the last page until Clear() is called (for voice mode).
     /// </summary>
     public void ShowPersistent(string message)
     {
         if (subtitleText == null) return;
 
         if (routine != null) StopCoroutine(routine);
-
-        subtitleText.text = message;
-        SetAlpha(1f);
+        routine = StartCoroutine(ShowPagedRoutine(message ?? "", clearAtEnd: false));
     }
 
     /// <summary>
@@ -74,7 +72,7 @@ public class SubtitleUI : MonoBehaviour
         ClearInstant();
     }
 
-    IEnumerator ShowPagedRoutine(string message)
+    IEnumerator ShowPagedRoutine(string message, bool clearAtEnd = true)
     {
         var pages = SplitIntoPages(message, maxCharsPerPage, smartSplit);
 
@@ -82,22 +80,33 @@ public class SubtitleUI : MonoBehaviour
         {
             string page = pages[i].Trim();
 
-            // Optional: show page indicator
             if (pages.Count > 1)
                 page = page + $"\n<size=70%><alpha=#AA>({i + 1}/{pages.Count})</alpha></size>";
 
             subtitleText.text = page;
             SetAlpha(1f);
 
+            bool isLastPage = (i == pages.Count - 1);
+
+            if (isLastPage && !clearAtEnd)
+            {
+                // Hold on last page indefinitely — wait for Clear() to be called externally
+                yield break;
+            }
+
             float stay = ComputeDuration(page);
             yield return new WaitForSeconds(stay);
 
-            // small fade between pages (looks nicer)
-            yield return FadeOut();
+            // Fade between pages
+            if (!isLastPage)
+                yield return FadeOut();
         }
 
-        ClearInstant();
-        routine = null;
+        if (clearAtEnd)
+        {
+            ClearInstant();
+            routine = null;
+        }
     }
 
     float ComputeDuration(string s)

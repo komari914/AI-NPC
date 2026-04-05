@@ -114,12 +114,7 @@ public class GameEndUI : MonoBehaviour
         UpdateButtonVisibility();
 
         // Save experiment data
-        if (DataRecorder.Instance != null)
-        {
-            DataRecorder.Instance.EndSession(saveData: true);
-            DataRecorder.Instance.ExportToCSV();
-            Debug.Log($"[GameEnd] Experiment data saved to: {DataRecorder.Instance.GetSaveDirectoryPath()}");
-        }
+        DataRecorder.Instance?.EndSession();
 
         Debug.Log($"[GameEnd] Showing end screen - Success: {success}, Time: {timeUsed:F1}s");
     }

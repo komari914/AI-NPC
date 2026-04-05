@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
@@ -85,11 +86,14 @@ public class EvidenceJournalUI : MonoBehaviour
     {
         if (Keyboard.current == null) return;
 
-        if (Keyboard.current.tabKey.wasPressedThisFrame)
+        bool tabPressed    = Keyboard.current.tabKey.wasPressedThisFrame;
+        bool escapePressed = Keyboard.current.escapeKey.wasPressedThisFrame;
+
+        if (tabPressed || (escapePressed && isOpen))
         {
             if (EvidencePopupUI.Instance != null && EvidencePopupUI.Instance.IsOpen) return;
             if (isOpen) Close();
-            else         Open();
+            else        Open();
         }
     }
 
@@ -109,6 +113,7 @@ public class EvidenceJournalUI : MonoBehaviour
         if (journalPanel == null) { Debug.LogError("[Journal] journalPanel not assigned!"); return; }
         isOpen = true;
         journalPanel.SetActive(true);
+        EventSystem.current?.SetSelectedGameObject(null); // prevent Tab being eaten by UI navigation
         ShowDirectory();
 
         if (fpsController     != null) fpsController.enabled     = false;

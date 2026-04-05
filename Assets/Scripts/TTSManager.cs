@@ -1,11 +1,11 @@
 using System;
 using System.Collections;
-using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 
 /// <summary>
 /// Text-to-Speech using ElevenLabs API.
+/// Requests PCM audio and builds AudioClip directly from bytes — no file I/O, WebGL compatible.
 /// Endpoint: POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}
 /// </summary>
 public class TTSManager : MonoBehaviour
@@ -13,13 +13,12 @@ public class TTSManager : MonoBehaviour
     public static TTSManager Instance { get; private set; }
 
     [Header("ElevenLabs API")]
-    [Tooltip("ElevenLabs API key (xi-api-key)")]
     public string elevenLabsApiKey = "";
 
-    [Tooltip("Voice ID from ElevenLabs (e.g. 'Rachel' = 21m00Tcm4TlvDq8ikWAM)")]
+    [Tooltip("Voice ID from ElevenLabs dashboard")]
     public string voiceId = "21m00Tcm4TlvDq8ikWAM";
 
-    [Tooltip("Model: eleven_turbo_v2_5 (fast) or eleven_multilingual_v2 (high quality)")]
+    [Tooltip("eleven_turbo_v2_5 (fast) or eleven_multilingual_v2 (quality)")]
     public string modelId = "eleven_turbo_v2_5";
 
     [Header("Voice Settings")]
@@ -36,7 +35,10 @@ public class TTSManager : MonoBehaviour
     public bool isSpeaking   = false;
     public bool isProcessing = false;
 
-    private const string TTSEndpoint = "https://api.elevenlabs.io/v1/text-to-speech/";
+    // PCM 22050 Hz mono — supported on all platforms including WebGL
+    private const string TTSEndpoint  = "https://api.elevenlabs.io/v1/text-to-speech/";
+    private const string OutputFormat = "pcm_22050";
+    private const int    SampleRate   = 22050;
 
     // ─── Unity lifecycle ──────────────────────────────────────────────────────
 
@@ -62,11 +64,12 @@ public class TTSManager : MonoBehaviour
 
     public void Speak(string text, Action onComplete = null, Action<string> onError = null)
     {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            onError?.Invoke("Empty text");
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(text)) { onError?.Invoke("Empty text"); return; }
+
+        // Strip speaker prefixes like "Mentor:", "NPC:" etc.
+        int colon = text.IndexOf(':');
+        if (colon > 0 && colon < 20)
+            text = text.Substring(colon + 1).TrimStart();
 
         // Only play TTS in Voice modality
         if (ScenarioManager.Instance != null &&
@@ -82,30 +85,24 @@ public class TTSManager : MonoBehaviour
     public void StopSpeaking()
     {
         if (audioSource != null && audioSource.isPlaying)
-        {
             audioSource.Stop();
-            Debug.Log("[TTS] Stopped speaking");
-        }
     }
 
     public bool IsBusy() => isSpeaking || isProcessing;
 
-    // ─── Coroutines ───────────────────────────────────────────────────────────
+    // ─── Coroutine ────────────────────────────────────────────────────────────
 
     IEnumerator SpeakCoroutine(string text, Action onComplete, Action<string> onError)
     {
         if (string.IsNullOrWhiteSpace(elevenLabsApiKey))
         {
             string err = "[TTS] ElevenLabs API key is empty!";
-            Debug.LogError(err);
-            onError?.Invoke(err);
-            yield break;
+            Debug.LogError(err); onError?.Invoke(err); yield break;
         }
 
         StopSpeaking();
         isProcessing = true;
 
-        // Build JSON body manually to handle nested voice_settings
         string json = $"{{" +
                       $"\"text\":\"{EscapeJson(text)}\"," +
                       $"\"model_id\":\"{modelId}\"," +
@@ -114,21 +111,20 @@ public class TTSManager : MonoBehaviour
                       $"\"similarity_boost\":{similarityBoost.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}," +
                       $"\"style\":{style.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}," +
                       $"\"use_speaker_boost\":{(useSpeakerBoost ? "true" : "false")}" +
-                      $"}}" +
-                      $"}}";
+                      $"}}}}";
 
         byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
-        string url     = TTSEndpoint + voiceId + "?output_format=mp3_44100_128";
+        string url     = $"{TTSEndpoint}{voiceId}?output_format={OutputFormat}";
 
-        Debug.Log($"[TTS] Requesting speech (ElevenLabs): {text.Substring(0, Mathf.Min(60, text.Length))}...");
+        Debug.Log($"[TTS] Requesting: {text.Substring(0, Mathf.Min(60, text.Length))}...");
 
         using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
         {
             request.uploadHandler   = new UploadHandlerRaw(bodyRaw);
             request.downloadHandler = new DownloadHandlerBuffer();
-            request.SetRequestHeader("xi-api-key",    elevenLabsApiKey);
-            request.SetRequestHeader("Content-Type",  "application/json");
-            request.SetRequestHeader("Accept",        "audio/mpeg");
+            request.SetRequestHeader("xi-api-key",   elevenLabsApiKey);
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Accept",       "audio/pcm");
 
             yield return request.SendWebRequest();
 
@@ -136,68 +132,50 @@ public class TTSManager : MonoBehaviour
 
             if (request.result == UnityWebRequest.Result.Success)
             {
-                byte[] audioData = request.downloadHandler.data;
-                Debug.Log($"[TTS] Received {audioData.Length} bytes of audio");
-                StartCoroutine(PlayAudioFromBytes(audioData, onComplete, onError));
-            }
-            else
-            {
-                string err = $"[TTS] API error: {request.error} — {request.downloadHandler.text}";
-                Debug.LogError(err);
-                onError?.Invoke(err);
-            }
-        }
-    }
+                byte[]    pcmBytes = request.downloadHandler.data;
+                AudioClip clip     = PcmBytesToAudioClip(pcmBytes, SampleRate);
 
-    IEnumerator PlayAudioFromBytes(byte[] audioData, Action onComplete, Action<string> onError)
-    {
-        string tempPath = Path.Combine(Application.temporaryCachePath, "tts_elevenlabs.mp3");
-
-        try
-        {
-            File.WriteAllBytes(tempPath, audioData);
-        }
-        catch (Exception e)
-        {
-            string err = $"[TTS] Failed to save temp file: {e.Message}";
-            Debug.LogError(err);
-            onError?.Invoke(err);
-            yield break;
-        }
-
-        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip("file://" + tempPath, AudioType.MPEG))
-        {
-            yield return www.SendWebRequest();
-
-            if (www.result == UnityWebRequest.Result.Success)
-            {
-                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
                 if (clip != null)
                 {
-                    Debug.Log($"[TTS] Playing clip ({clip.length:F1}s)");
+                    Debug.Log($"[TTS] Playing {clip.length:F1}s clip");
                     audioSource.clip = clip;
                     audioSource.Play();
                     yield return new WaitWhile(() => audioSource.isPlaying);
-                    Debug.Log("[TTS] Playback finished");
                     onComplete?.Invoke();
                 }
                 else
                 {
-                    string err = "[TTS] Failed to decode AudioClip";
-                    Debug.LogError(err);
-                    onError?.Invoke(err);
+                    string err = "[TTS] Failed to build AudioClip from PCM";
+                    Debug.LogError(err); onError?.Invoke(err);
                 }
             }
             else
             {
-                string err = $"[TTS] Failed to load audio: {www.error}";
-                Debug.LogError(err);
-                onError?.Invoke(err);
+                string err = $"[TTS] API error: {request.error} — {request.downloadHandler.text}";
+                Debug.LogError(err); onError?.Invoke(err);
             }
         }
+    }
 
-        try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-        catch (Exception e) { Debug.LogWarning($"[TTS] Could not delete temp file: {e.Message}"); }
+    // ─── PCM → AudioClip (no file I/O, works on WebGL) ───────────────────────
+
+    static AudioClip PcmBytesToAudioClip(byte[] pcmBytes, int sampleRate)
+    {
+        if (pcmBytes == null || pcmBytes.Length < 2) return null;
+
+        // ElevenLabs PCM is 16-bit signed little-endian, mono
+        int sampleCount = pcmBytes.Length / 2;
+        float[] samples = new float[sampleCount];
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            short s = (short)(pcmBytes[i * 2] | (pcmBytes[i * 2 + 1] << 8));
+            samples[i] = s / 32768f;
+        }
+
+        AudioClip clip = AudioClip.Create("tts", sampleCount, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

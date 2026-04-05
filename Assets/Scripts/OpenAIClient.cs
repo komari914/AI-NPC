@@ -152,7 +152,7 @@ public class OpenAIClient : MonoBehaviour
             string contentType = msg.role == "assistant" ? "output_text" : "input_text";
             sb.Append($"{{\"role\":\"{msg.role}\",\"content\":[{{\"type\":\"{contentType}\",\"text\":\"");
             sb.Append(Escape(msg.content));
-            sb.Append("\"}]}},");
+            sb.Append("\"}]},");
         }
 
         // Current user message
@@ -194,9 +194,27 @@ public class OpenAIClient : MonoBehaviour
     private static string Escape(string s)
     {
         if (string.IsNullOrEmpty(s)) return "";
-        return s.Replace("\\", "\\\\")
-                .Replace("\"", "\\\"")
-                .Replace("\n", "\\n")
-                .Replace("\r", "");
+        var sb = new StringBuilder(s.Length + 16);
+        foreach (char c in s)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"':  sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n");  break;
+                case '\r': break; // drop CR
+                case '\t': sb.Append("\\t");  break;
+                case '\b': sb.Append("\\b");  break;
+                case '\f': sb.Append("\\f");  break;
+                default:
+                    // Escape other ASCII control characters
+                    if (c < 0x20)
+                        sb.Append($"\\u{(int)c:x4}");
+                    else
+                        sb.Append(c);
+                    break;
+            }
+        }
+        return sb.ToString();
     }
 }

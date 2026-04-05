@@ -91,7 +91,7 @@ public class PauseMenuUI : MonoBehaviour
     void GoToMainMenu()
     {
         // Save data before leaving
-        DataRecorder.Instance?.EndSession(saveData: true);
+        DataRecorder.Instance?.EndSession();
 
         Time.timeScale = 1f;
         isPaused = false;
@@ -101,7 +101,7 @@ public class PauseMenuUI : MonoBehaviour
 
     void QuitGame()
     {
-        DataRecorder.Instance?.EndSession(saveData: true);
+        DataRecorder.Instance?.EndSession();
 
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;

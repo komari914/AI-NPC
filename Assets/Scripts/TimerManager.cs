@@ -31,6 +31,10 @@ public class TimerManager : MonoBehaviour
     public bool autoEndGameOnComplete = true;
     public GameEndUI gameEndUI;
 
+    [Header("Final Question Trigger")]
+    [Tooltip("Assign the MentorNPC in scene — called when timer warning fires")]
+    public MentorNPC mentorNPC;
+
     [Header("Testing (Debug Only)")]
     [Tooltip("Press T key to set timer to 5 seconds remaining (for testing)")]
     public bool enableTestShortcut = true;
@@ -79,6 +83,11 @@ public class TimerManager : MonoBehaviour
             warningTriggered = true;
             onTimerWarning?.Invoke();
             Debug.Log($"[Timer] Warning: {warningTime} seconds remaining!");
+
+            // Trigger FinalQuestion phase and mentor prompt
+            CaseProgressManager.Instance?.TriggerFinalQuestion();
+            if (mentorNPC == null) mentorNPC = UnityEngine.Object.FindFirstObjectByType<MentorNPC>();
+            mentorNPC?.StartFinalPhasePrompt();
         }
 
         // Check for completion
