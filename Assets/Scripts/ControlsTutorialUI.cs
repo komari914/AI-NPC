@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
@@ -37,13 +38,14 @@ public class ControlsTutorialUI : MonoBehaviour
 
 <b>Interaction</b>
   E              Inspect evidence / Confirm
-  F              Talk to Mentor
+  V              Talk to Mentor
 
 <b>Journal</b>
   TAB            Open / Close evidence journal
 
 <b>Menu</b>
-  ESC            Pause";
+  ESC            Pause
+  H              Show this screen";
 
     private const string VoiceModeControls =
 @"<b>Movement</b>
@@ -58,7 +60,10 @@ public class ControlsTutorialUI : MonoBehaviour
   TAB            Open / Close evidence journal
 
 <b>Menu</b>
-  ESC            Pause";
+  ESC            Pause
+  H              Show this screen";
+
+    private bool _openingTriggered = false;
 
     // ─── Unity lifecycle ──────────────────────────────────────────────────────
 
@@ -88,6 +93,26 @@ public class ControlsTutorialUI : MonoBehaviour
         startButton?.onClick.AddListener(OnStartClicked);
     }
 
+    void Update()
+    {
+        if (Keyboard.current == null) return;
+        if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
+        if (controlsPanel != null && !controlsPanel.activeSelf &&
+            Keyboard.current.hKey.wasPressedThisFrame)
+            ShowControls();
+    }
+
+    public void ShowControls()
+    {
+        if (fpsController    != null) fpsController.enabled    = false;
+        if (playerInteraction != null) playerInteraction.enabled = false;
+
+        controlsPanel?.SetActive(true);
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+    }
+
     // ─── Button handler ───────────────────────────────────────────────────────
 
     void OnStartClicked()
@@ -101,8 +126,11 @@ public class ControlsTutorialUI : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible   = false;
 
-        // Now start the opening NPC sequence
-        if (mentorNPC != null)
-            mentorNPC.StartOpeningManually();
+        // Only trigger the opening once
+        if (!_openingTriggered)
+        {
+            _openingTriggered = true;
+            mentorNPC?.StartOpeningManually();
+        }
     }
 }

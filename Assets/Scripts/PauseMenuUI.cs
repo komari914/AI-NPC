@@ -41,8 +41,9 @@ public class PauseMenuUI : MonoBehaviour
     {
         if (Keyboard.current == null) return;
 
-        // Don't allow pause if evidence popup or game end is open
-        if (EvidencePopupUI.Instance != null && EvidencePopupUI.Instance.IsOpen) return;
+        // Don't allow pause if evidence popup, dialogue input, or game end is open
+        if (EvidencePopupUI.Instance  != null && EvidencePopupUI.Instance.IsOpen)  return;
+        if (DialogueInputUI.Instance  != null && DialogueInputUI.Instance.IsOpen)  return;
 
         if (Keyboard.current.escapeKey.wasPressedThisFrame)
         {
@@ -96,7 +97,9 @@ public class PauseMenuUI : MonoBehaviour
         Time.timeScale = 1f;
         isPaused = false;
 
-        ScenarioManager.Instance?.ReturnToMainMenu();
+        // No main menu — reload the current scenario from scratch
+        UnityEngine.SceneManagement.SceneManager.LoadScene(
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
     }
 
     void QuitGame()

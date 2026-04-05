@@ -1,38 +1,52 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 public class DialogueInputUI : MonoBehaviour
 {
+    public static DialogueInputUI Instance { get; private set; }
+    public bool IsOpen => panel != null && panel.activeSelf;
+
     [Header("UI")]
-    public GameObject panel;           // 一个Panel，包含输入框
-    public TMP_InputField inputField;  // TMP_InputField
+    public GameObject    panel;
+    public TMP_InputField inputField;
+    public Button        submitButton;
 
     [Header("Refs")]
     public MentorNPC mentor;           // 拖拽MentorNPC
     public SimpleFPSController fps;    // 可选：输入时禁用移动
     public PlayerInteraction interaction; // 可选：输入时禁用拾取
 
+    private bool _enterPressedThisFrame;
+
     void Awake()
     {
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
         Hide();
+    }
+
+    void Start()
+    {
+        if (submitButton != null)
+            submitButton.onClick.AddListener(Submit);
+
+        if (inputField != null)
+            inputField.onEndEdit.AddListener(_ => { if (_enterPressedThisFrame) Submit(); });
     }
 
     void Update()
     {
-        if (panel == null) return;
+        if (Keyboard.current == null) return;
 
-        // 回车提交
-        if (panel.activeSelf && Keyboard.current != null && Keyboard.current.enterKey.wasPressedThisFrame)
-        {
-            Submit();
-        }
+        _enterPressedThisFrame = Keyboard.current.enterKey.wasPressedThisFrame ||
+                                 Keyboard.current.numpadEnterKey.wasPressedThisFrame;
 
-        // Esc 关闭
-        if (panel.activeSelf && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-        {
+        if (panel == null || !panel.activeSelf) return;
+
+        if (Keyboard.current.escapeKey.wasPressedThisFrame)
             Hide();
-        }
     }
 
     public void Show()

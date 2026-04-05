@@ -81,6 +81,8 @@ public class VoiceInputManager : MonoBehaviour
             return;
         }
 
+        if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
+
         if (toggleMode)
         {
             // Toggle mode: press once to start, press again to stop

@@ -62,7 +62,8 @@ public class TimerManager : MonoBehaviour
     void Update()
     {
         // Testing shortcut: Press T to set timer to 5 seconds
-        if (enableTestShortcut && UnityEngine.InputSystem.Keyboard.current != null)
+        if (enableTestShortcut && UnityEngine.InputSystem.Keyboard.current != null &&
+            (DialogueInputUI.Instance == null || !DialogueInputUI.Instance.IsOpen))
         {
             if (UnityEngine.InputSystem.Keyboard.current.tKey.wasPressedThisFrame)
             {

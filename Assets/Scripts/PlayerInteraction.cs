@@ -55,7 +55,7 @@ public class PlayerInteraction : MonoBehaviour
             {
                 bool isVoice = scenarioManager != null &&
                                scenarioManager.modality == ModalityType.Voice;
-                hintUI.Show(isVoice ? "[V]  Speak to Mentor" : "[F]  Talk to Mentor");
+                hintUI.Show("[V]  Talk to Mentor");
                 return;
             }
         }

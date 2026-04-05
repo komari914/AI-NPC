@@ -7,19 +7,19 @@ public enum ModalityType { Text, Voice }
 [System.Serializable]
 public class ScenarioConfig
 {
-    public int scenarioIndex;           // 1-4
-    public PersonaType persona;
+    public int          scenarioIndex;
+    public PersonaType  persona;
     public ModalityType modality;
-    public string scenarioName;
-    public string description;
+    public string       scenarioName;
+    public string       description;
 
     public ScenarioConfig(int index, PersonaType p, ModalityType m)
     {
         scenarioIndex = index;
-        persona = p;
-        modality = m;
-        scenarioName = $"Scenario {index}";
-        description = $"{p} + {m}";
+        persona       = p;
+        modality      = m;
+        scenarioName  = $"Scenario {index}";
+        description   = $"{p} + {m}";
     }
 }
 
@@ -27,191 +27,109 @@ public class ScenarioManager : MonoBehaviour
 {
     public static ScenarioManager Instance { get; private set; }
 
-    [Header("Current Scenario")]
-    public PersonaType persona = PersonaType.Empathic;
-    public ModalityType modality = ModalityType.Text;
-    public int scenarioIndex = 1; // 1-4
+    [Header("Current Scenario (read-only at runtime)")]
+    public PersonaType  persona       = PersonaType.TaskFocused;
+    public ModalityType modality      = ModalityType.Text;
+    public int          scenarioIndex = 3;
 
-    [Header("Scene Management")]
-    public string mainMenuSceneName = "MainMenu";
+    [Header("Scene")]
     public string gameSceneName = "SampleScene";
 
-    [Header("Display")]
-    public bool showOverlay = true;
+    [Header("Debug Overlay")]
+    public bool showOverlay = false;
+
+    // Fixed play order for all participants:
+    // 1st: Scenario 3 (TaskFocused + Text)
+    // 2nd: Scenario 2 (Empathic    + Voice)
+    // 3rd: Scenario 1 (Empathic    + Text)
+    // 4th: Scenario 4 (TaskFocused + Voice)
+    private static readonly int[] PlayOrder = { 3, 2, 1, 4 };
+
+    private const string KeyPosition = "ScenarioPosition"; // 0–3
+
+    public int  CurrentOrderPosition { get; private set; }
+    public bool IsLastScenario       => CurrentOrderPosition >= PlayOrder.Length - 1;
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-
-        // Load scenario config from PlayerPrefs if available
-        LoadScenarioFromPrefs();
+        Initialise();
     }
 
     void Start()
     {
-        // After all managers are initialized, check if we should notify them
-        if (scenarioIndex > 0)
-        {
-            Debug.Log($"[ScenarioManager] Loaded Scenario {scenarioIndex}: {persona} + {modality}");
-            NotifyScenarioLoaded();
-        }
+        Debug.Log($"[ScenarioManager] Step {CurrentOrderPosition + 1}/4 — " +
+                  $"Scenario {scenarioIndex} ({persona} + {modality})");
     }
 
     void OnGUI()
     {
         if (!showOverlay) return;
-
-        int w = 320;
-        int h = 90;
-        GUI.Box(new Rect(10, 10, w, h), "Scenario Status");
-
-        GUI.Label(new Rect(20, 35, w - 20, 20), $"Scenario: {scenarioIndex}");
-        GUI.Label(new Rect(20, 55, w - 20, 20), $"Persona: {persona}");
-        GUI.Label(new Rect(20, 75, w - 20, 20), $"Modality: {modality}");
+        GUI.Box  (new Rect(10, 10, 320, 90), "Scenario Status");
+        GUI.Label(new Rect(20, 35, 300, 20), $"Step: {CurrentOrderPosition + 1} / 4");
+        GUI.Label(new Rect(20, 55, 300, 20), $"Scenario {scenarioIndex}: {persona}");
+        GUI.Label(new Rect(20, 75, 300, 20), $"Modality: {modality}");
     }
 
-    /// <summary>
-    /// Set and start a specific scenario
-    /// </summary>
-    public void StartScenario(ScenarioConfig config)
+    // ── Initialisation ────────────────────────────────────────────────────────
+
+    void Initialise()
     {
-        ApplyScenarioConfig(config);
-        SaveScenarioToPrefs(config);
+        CurrentOrderPosition = Mathf.Clamp(PlayerPrefs.GetInt(KeyPosition, 0), 0, PlayOrder.Length - 1);
+        ApplyConfig(GetScenarioConfigByIndex(PlayOrder[CurrentOrderPosition]));
+    }
 
-        Debug.Log($"[ScenarioManager] Starting {config.scenarioName}: {config.description}");
+    void ApplyConfig(ScenarioConfig config)
+    {
+        scenarioIndex = config.scenarioIndex;
+        persona       = config.persona;
+        modality      = config.modality;
+    }
 
-        // Always reload the game scene to reset all state (handles NextScenario from within game)
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /// <summary>Load the next scenario in the fixed play order.</summary>
+    public void NextScenario()
+    {
+        if (IsLastScenario)
+        {
+            Debug.Log("[ScenarioManager] All 4 scenarios completed.");
+            return;
+        }
+
+        PlayerPrefs.SetInt(KeyPosition, CurrentOrderPosition + 1);
+        PlayerPrefs.Save();
+
         Time.timeScale = 1f;
         SceneManager.LoadScene(gameSceneName);
     }
 
     /// <summary>
-    /// Quick start with index (1-4), automatically assigns persona and modality
+    /// Resets progress back to step 1. Call this when starting a new participant
+    /// session (e.g. from a hidden reset button or the Unity Editor).
     /// </summary>
-    public void StartScenarioByIndex(int index)
+    public void ResetProgress()
     {
-        ScenarioConfig config = GetScenarioConfigByIndex(index);
-        StartScenario(config);
-    }
+        PlayerPrefs.SetInt(KeyPosition, 0);
+        PlayerPrefs.Save();
+        Debug.Log("[ScenarioManager] Progress reset — starting from step 1.");
 
-    /// <summary>
-    /// Apply scenario configuration to current manager
-    /// </summary>
-    private void ApplyScenarioConfig(ScenarioConfig config)
-    {
-        scenarioIndex = config.scenarioIndex;
-        persona = config.persona;
-        modality = config.modality;
-    }
-
-    /// <summary>
-    /// Get predefined scenario configuration by index
-    /// Scenario 1: Empathic + Text
-    /// Scenario 2: Empathic + Voice
-    /// Scenario 3: TaskFocused + Text
-    /// Scenario 4: TaskFocused + Voice
-    /// </summary>
-    public static ScenarioConfig GetScenarioConfigByIndex(int index)
-    {
-        switch (index)
-        {
-            case 1:
-                return new ScenarioConfig(1, PersonaType.Empathic, ModalityType.Text);
-            case 2:
-                return new ScenarioConfig(2, PersonaType.Empathic, ModalityType.Voice);
-            case 3:
-                return new ScenarioConfig(3, PersonaType.TaskFocused, ModalityType.Text);
-            case 4:
-                return new ScenarioConfig(4, PersonaType.TaskFocused, ModalityType.Voice);
-            default:
-                Debug.LogWarning($"[ScenarioManager] Invalid scenario index: {index}, defaulting to 1");
-                return new ScenarioConfig(1, PersonaType.Empathic, ModalityType.Text);
-        }
-    }
-
-    /// <summary>
-    /// Return to main menu
-    /// </summary>
-    public void ReturnToMainMenu()
-    {
-        Debug.Log("[ScenarioManager] Returning to main menu");
-        SceneManager.LoadScene(mainMenuSceneName);
-    }
-
-    /// <summary>
-    /// Restart current scenario
-    /// </summary>
-    public void RestartScenario()
-    {
-        Debug.Log("[ScenarioManager] Restarting current scenario");
-
-        // Get current configuration and restart
-        ScenarioConfig config = new ScenarioConfig(scenarioIndex, persona, modality);
-        SaveScenarioToPrefs(config);
-
-        // Reload the game scene
+        Time.timeScale = 1f;
         SceneManager.LoadScene(gameSceneName);
     }
 
-    /// <summary>
-    /// Get current scenario configuration
-    /// </summary>
-    public ScenarioConfig GetCurrentScenario()
-    {
-        return new ScenarioConfig(scenarioIndex, persona, modality);
-    }
+    public ScenarioConfig GetCurrentScenario() =>
+        new ScenarioConfig(scenarioIndex, persona, modality);
 
-    /// <summary>
-    /// Save scenario configuration to PlayerPrefs
-    /// </summary>
-    private void SaveScenarioToPrefs(ScenarioConfig config)
+    public static ScenarioConfig GetScenarioConfigByIndex(int index) => index switch
     {
-        PlayerPrefs.SetInt("ScenarioIndex", config.scenarioIndex);
-        PlayerPrefs.SetInt("ScenarioPersona", (int)config.persona);
-        PlayerPrefs.SetInt("ScenarioModality", (int)config.modality);
-        PlayerPrefs.Save();
-        Debug.Log($"[ScenarioManager] Saved scenario to PlayerPrefs: {config.scenarioIndex}");
-    }
-
-    /// <summary>
-    /// Load scenario configuration from PlayerPrefs
-    /// </summary>
-    private void LoadScenarioFromPrefs()
-    {
-        if (PlayerPrefs.HasKey("ScenarioIndex"))
-        {
-            scenarioIndex = PlayerPrefs.GetInt("ScenarioIndex", 1);
-            persona = (PersonaType)PlayerPrefs.GetInt("ScenarioPersona", 0);
-            modality = (ModalityType)PlayerPrefs.GetInt("ScenarioModality", 0);
-            Debug.Log($"[ScenarioManager] Loaded from PlayerPrefs: Scenario {scenarioIndex} ({persona} + {modality})");
-        }
-    }
-
-    /// <summary>
-    /// Notify other systems that scenario has been loaded
-    /// </summary>
-    private void NotifyScenarioLoaded()
-    {
-        // This can be extended to notify other systems
-        // For now, just log
-        Debug.Log($"[ScenarioManager] Scenario {scenarioIndex} is active");
-    }
-
-    /// <summary>
-    /// Clear saved scenario data (useful for testing)
-    /// </summary>
-    public void ClearScenarioPrefs()
-    {
-        PlayerPrefs.DeleteKey("ScenarioIndex");
-        PlayerPrefs.DeleteKey("ScenarioPersona");
-        PlayerPrefs.DeleteKey("ScenarioModality");
-        PlayerPrefs.Save();
-        Debug.Log("[ScenarioManager] Cleared scenario PlayerPrefs");
-    }
+        1 => new ScenarioConfig(1, PersonaType.Empathic,    ModalityType.Text),
+        2 => new ScenarioConfig(2, PersonaType.Empathic,    ModalityType.Voice),
+        3 => new ScenarioConfig(3, PersonaType.TaskFocused, ModalityType.Text),
+        4 => new ScenarioConfig(4, PersonaType.TaskFocused, ModalityType.Voice),
+        _ => new ScenarioConfig(1, PersonaType.Empathic,    ModalityType.Text),
+    };
 }

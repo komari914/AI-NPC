@@ -205,7 +205,8 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
     void Update()
     {
         if (Keyboard.current == null) return;
-        if (!Keyboard.current.fKey.wasPressedThisFrame) return;
+        if (!Keyboard.current.vKey.wasPressedThisFrame) return;
+        if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
 
         if (!IsPlayerCloseEnough()) return;
 

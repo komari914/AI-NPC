@@ -10,10 +10,14 @@ public class SimpleFPSController : MonoBehaviour
     public float mouseSensitivity = 10f; // InputSystem 鼠标增量更大，通常用 5-20
     public Transform playerCamera;
 
-    private float xRotation = 0f;
+    private float               xRotation   = 0f;
+    private CharacterController _cc;
+    private float               _verticalVelocity = 0f;
+    private const float         Gravity = -9.81f;
 
     void Start()
     {
+        _cc = GetComponent<CharacterController>();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
@@ -50,7 +54,18 @@ public class SimpleFPSController : MonoBehaviour
             if (Keyboard.current.sKey.isPressed) z -= 1f;
         }
 
+        // Gravity
+        if (_cc != null && _cc.isGrounded)
+            _verticalVelocity = -2f; // small downward force to keep grounded
+        else
+            _verticalVelocity += Gravity * Time.deltaTime;
+
         Vector3 move = (transform.right * x + transform.forward * z).normalized;
-        transform.position += move * moveSpeed * Time.deltaTime;
+        Vector3 velocity = move * moveSpeed + Vector3.up * _verticalVelocity;
+
+        if (_cc != null)
+            _cc.Move(velocity * Time.deltaTime);
+        else
+            transform.position += move * moveSpeed * Time.deltaTime;
     }
 }

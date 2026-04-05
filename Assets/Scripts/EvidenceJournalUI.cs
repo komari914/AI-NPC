@@ -86,6 +86,8 @@ public class EvidenceJournalUI : MonoBehaviour
     {
         if (Keyboard.current == null) return;
 
+        if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
+
         bool tabPressed    = Keyboard.current.tabKey.wasPressedThisFrame;
         bool escapePressed = Keyboard.current.escapeKey.wasPressedThisFrame;
 
