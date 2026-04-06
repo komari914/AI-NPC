@@ -38,6 +38,13 @@ public class ScenarioManager : MonoBehaviour
     [Header("Debug Overlay")]
     public bool showOverlay = false;
 
+    [Header("Editor Debug")]
+    [Tooltip("Enable to bypass the fixed play order and jump straight to a specific scenario.")]
+    public bool debugOverride = false;
+    [Tooltip("1 = TaskFocused+Text, 2 = Empathic+Voice, 3 = Empathic+Text, 4 = TaskFocused+Voice")]
+    [Range(1, 4)]
+    public int  debugScenarioIndex = 1;
+
     // Fixed play order for all participants:
     // 1st: Scenario 3 (TaskFocused + Text)
     // 2nd: Scenario 2 (Empathic    + Voice)
@@ -78,6 +85,15 @@ public class ScenarioManager : MonoBehaviour
 
     void Initialise()
     {
+#if UNITY_EDITOR
+        if (debugOverride)
+        {
+            CurrentOrderPosition = 0; // irrelevant in debug mode
+            ApplyConfig(GetScenarioConfigByIndex(debugScenarioIndex));
+            Debug.Log($"[ScenarioManager] DEBUG OVERRIDE — Scenario {debugScenarioIndex} ({persona} + {modality})");
+            return;
+        }
+#endif
         CurrentOrderPosition = Mathf.Clamp(PlayerPrefs.GetInt(KeyPosition, 0), 0, PlayOrder.Length - 1);
         ApplyConfig(GetScenarioConfigByIndex(PlayOrder[CurrentOrderPosition]));
     }

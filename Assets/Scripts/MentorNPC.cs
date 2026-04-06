@@ -111,6 +111,7 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
 
     private bool isBusy = false;
     private bool openingFinished = false;
+    private bool _openingStarted = false;
     private string latestPlayerInput = "";
     private readonly List<ChatMessage> conversationHistory = new();
 
@@ -134,14 +135,18 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
         }
 
         if (playOpeningOnStart && subtitleUI != null)
+        {
+            _openingStarted = true;
             StartCoroutine(PlayOpeningRoutine());
+        }
         else if (!playOpeningOnStart)
         {
             // Opening will be triggered manually by ControlsTutorialUI
         }
         else
         {
-            openingFinished = true;
+            _openingStarted  = true;
+            openingFinished  = true;
             progress?.MarkOpeningFinished();
         }
     }
@@ -149,6 +154,9 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
     /// <summary>Called by ControlsTutorialUI after the player dismisses the controls panel.</summary>
     public void StartOpeningManually()
     {
+        if (_openingStarted) return; // already playing — do nothing
+        _openingStarted = true;
+
         if (subtitleUI != null)
             StartCoroutine(PlayOpeningRoutine());
         else

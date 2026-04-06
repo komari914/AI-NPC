@@ -978,7 +978,9 @@ MonoBehaviour:
   modality: 0
   scenarioIndex: 1
   gameSceneName: SampleScene
-  showOverlay: 1
+  showOverlay: 0
+  debugOverride: 0
+  debugScenarioIndex: 1
 --- !u!114 &52599944
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -986,13 +988,13 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 52599941}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6ad783dae929c2c429431b1597c80e26, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DataRecorder
   playerId: P001
-  googleScriptUrl: https://script.google.com/macros/s/AKfycbwdtg5cnu7UT8PvA0uN9NmwzjaV_92OjChWrZDwBtxIKiehLpTh-BbN_-DyAtVFXqzA8g/exec
+  googleScriptUrl: https://script.google.com/macros/s/AKfycbyPyqO2zXYeoX4WFmgLxeVm1S9KcwOyayQIb85iz5A9uSDskqERDFczDQouCz-iOhkw/exec
   currentSession:
     sessionId: 
     playerId: 
@@ -1033,7 +1035,7 @@ MonoBehaviour:
   onTimerWarning:
     m_PersistentCalls:
       m_Calls: []
-  warningTime: 60
+  warningTime: 30
   autoEndGameOnComplete: 1
   gameEndUI: {fileID: 1372685454}
   mentorNPC: {fileID: 472920491}
@@ -2348,7 +2350,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3497462379464278586, guid: d91eaa09f6b07a54f8e1bd246e8b07b1, type: 3}
       propertyPath: m_LocalScale.y
-      value: 0.01
+      value: 0.1
       objectReference: {fileID: 0}
     - target: {fileID: 3497462379464278586, guid: d91eaa09f6b07a54f8e1bd246e8b07b1, type: 3}
       propertyPath: m_LocalScale.z
@@ -5210,7 +5212,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5accc043c21a5a0408915e7e28f28d14, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OpenAIClient
-  openAIApiKey: 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
+  openAIApiKey: 
   model: gpt-4.1-mini
   timeoutSeconds: 30
 --- !u!4 &296565432
@@ -9327,6 +9329,29 @@ Animator:
   m_CorrespondingSourceObject: {fileID: 7668748613284132548, guid: f2b03ce0eed44924a80d4b92973d0a8b, type: 3}
   m_PrefabInstance: {fileID: 2005014503}
   m_PrefabAsset: {fileID: 0}
+--- !u!136 &472920493
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 472920489}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.2964393
+  m_Height: 1.6262449
+  m_Direction: 1
+  m_Center: {x: 0.017898358, y: 0.6669249, z: -8.9123925e-10}
 --- !u!1001 &475400195
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -36735,6 +36760,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 2905735546186576447, guid: f2b03ce0eed44924a80d4b92973d0a8b, type: 3}
       insertIndex: -1
       addedObject: {fileID: 472920491}
+    - targetCorrespondingSourceObject: {fileID: 2905735546186576447, guid: f2b03ce0eed44924a80d4b92973d0a8b, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 472920493}
   m_SourcePrefab: {fileID: 100100000, guid: f2b03ce0eed44924a80d4b92973d0a8b, type: 3}
 --- !u!1001 &2007335122
 PrefabInstance:

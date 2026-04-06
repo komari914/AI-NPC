@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Runtime.InteropServices;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -38,6 +39,11 @@ public class VoiceInputManager : MonoBehaviour
     public AudioSource audioSource;
     public bool playbackRecording = false; // For debugging
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    [DllImport("__Internal")] static extern void StartWebGLRecording();
+    [DllImport("__Internal")] static extern void StopWebGLRecording(string apiKey, string goName, string callback);
+#endif
+
     // State
     private bool isRecording = false;
     private AudioClip recordedClip;
@@ -50,24 +56,39 @@ public class VoiceInputManager : MonoBehaviour
 
     void Start()
     {
-        // Get default microphone
-        if (Microphone.devices.Length > 0)
+        if (audioSource == null)
+            audioSource = gameObject.AddComponent<AudioSource>();
+
+        HideRecordingIndicator();
+        StartCoroutine(InitMicrophone());
+    }
+
+    IEnumerator InitMicrophone()
+    {
+#if !UNITY_WEBGL || UNITY_EDITOR
+        yield return null;
+        if (UnityEngine.Microphone.devices.Length > 0)
         {
-            microphoneDevice = Microphone.devices[0];
+            microphoneDevice = UnityEngine.Microphone.devices[0];
             Debug.Log($"[VoiceInput] Using microphone: {microphoneDevice}");
         }
         else
         {
             Debug.LogError("[VoiceInput] No microphone found!");
+            UpdateStatus("No microphone found.");
         }
-
-        // Setup audio source for playback (optional)
-        if (audioSource == null)
+#else
+        yield return Application.RequestUserAuthorization(UserAuthorization.Microphone);
+        if (!Application.HasUserAuthorization(UserAuthorization.Microphone))
         {
-            audioSource = gameObject.AddComponent<AudioSource>();
+            Debug.LogError("[VoiceInput] Microphone permission denied.");
+            UpdateStatus("Microphone permission denied.");
+            yield break;
         }
-
-        HideRecordingIndicator();
+        // WebGL microphone initialised via browser — device name not needed
+        microphoneDevice = "";
+        Debug.Log("[VoiceInput] WebGL microphone authorised.");
+#endif
     }
 
     void Update()
@@ -148,9 +169,11 @@ public class VoiceInputManager : MonoBehaviour
         isRecording = true;
         recordingStartTime = Time.time;
 
-        // Start recording
-        recordedClip = Microphone.Start(microphoneDevice, false, (int)maxRecordingDuration, sampleRate);
-
+#if UNITY_WEBGL && !UNITY_EDITOR
+        StartWebGLRecording();
+#else
+        recordedClip = UnityEngine.Microphone.Start(microphoneDevice, false, (int)maxRecordingDuration, sampleRate);
+#endif
         ShowRecordingIndicator();
         UpdateStatus("Listening...");
     }
@@ -162,9 +185,16 @@ public class VoiceInputManager : MonoBehaviour
         Debug.Log("[VoiceInput] Stopping recording...");
         isRecording = false;
 
-        // Stop microphone
-        int lastSample = Microphone.GetPosition(microphoneDevice);
-        Microphone.End(microphoneDevice);
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // JS plugin handles recording, STT, and calls OnWebGLTranscription when done
+        isProcessing = true;
+        UpdateStatus("Processing...");
+        HideRecordingIndicator();
+        StopWebGLRecording(elevenLabsApiKey, gameObject.name, nameof(OnWebGLTranscription));
+        return; // JS takes over from here
+#else
+        int lastSample = UnityEngine.Microphone.GetPosition(microphoneDevice);
+        UnityEngine.Microphone.End(microphoneDevice);
 
         HideRecordingIndicator();
 
@@ -180,7 +210,7 @@ public class VoiceInputManager : MonoBehaviour
                 audioSource.Play();
             }
 
-            // Send to Whisper API
+            // Send to ElevenLabs STT
             StartCoroutine(TranscribeAudio(trimmedClip));
         }
         else
@@ -188,6 +218,7 @@ public class VoiceInputManager : MonoBehaviour
             Debug.LogWarning("[VoiceInput] No audio recorded");
             UpdateStatus("No audio recorded");
         }
+#endif
     }
 
     AudioClip TrimAudioClip(AudioClip clip, int samples)
@@ -370,6 +401,29 @@ public class VoiceInputManager : MonoBehaviour
         {
             recordingText.text = "Hold V to speak";
         }
+    }
+
+    // Called by JS plugin via SendMessage after WebGL transcription completes
+    public void OnWebGLTranscription(string text)
+    {
+        isProcessing = false;
+        text = (text ?? "").Trim();
+        UpdateStatus(string.IsNullOrEmpty(text) ? "No speech detected." : $"You said: {text}");
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            Debug.LogWarning("[VoiceInput] WebGL transcription empty.");
+            return;
+        }
+
+        if (mentorNPC == null)
+        {
+            Debug.LogError("[VoiceInput] mentorNPC is null.");
+            return;
+        }
+
+        Debug.Log($"[VoiceInput] WebGL transcription: {text}");
+        mentorNPC.TalkWithPlayerInput(text);
     }
 
     void UpdateStatus(string message)

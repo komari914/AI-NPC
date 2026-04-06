@@ -48,15 +48,24 @@ public class OpenAIClient : MonoBehaviour
 
     public float timeoutSeconds = 30f;
 
-    private const string Endpoint = "https://api.openai.com/v1/responses";
+    private const string ProxyEndpoint  = "https://openai-proxy-lime.vercel.app/api/chat";
+    private const string DirectEndpoint = "https://api.openai.com/v1/responses";
+
+    // Editor + key set → call OpenAI directly (fast iteration, no proxy needed)
+    // Editor + no key  → use proxy
+    // WebGL build      → always use proxy
+    private bool   UseProxy      => string.IsNullOrWhiteSpace(openAIApiKey);
+    private string ActiveEndpoint => UseProxy ? ProxyEndpoint : DirectEndpoint;
 
     public IEnumerator Send(string systemPrompt, string userMessage, Action<string> onResult, Action<string> onError)
     {
-        if (string.IsNullOrWhiteSpace(openAIApiKey))
+#if UNITY_EDITOR
+        if (!UseProxy && string.IsNullOrWhiteSpace(openAIApiKey))
         {
             onError?.Invoke("OpenAI API key is empty. Please set it on OpenAIClient.");
             yield break;
         }
+#endif
 
         // Minimal Responses API JSON body
         string json =
@@ -74,13 +83,12 @@ public class OpenAIClient : MonoBehaviour
             + "]"
             + "}";
 
-        using var req = new UnityWebRequest(Endpoint, "POST");
-        req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
+        using var req = new UnityWebRequest(ActiveEndpoint, "POST");
+        req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
         req.downloadHandler = new DownloadHandlerBuffer();
-        req.timeout = Mathf.CeilToInt(timeoutSeconds);
-
+        req.timeout         = Mathf.CeilToInt(timeoutSeconds);
         req.SetRequestHeader("Content-Type", "application/json");
-        req.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
+        if (!UseProxy) req.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
 
         yield return req.SendWebRequest();
 
@@ -130,12 +138,6 @@ public class OpenAIClient : MonoBehaviour
         Action<string> onResult,
         Action<string> onError)
     {
-        if (string.IsNullOrWhiteSpace(openAIApiKey))
-        {
-            onError?.Invoke("OpenAI API key is empty.");
-            yield break;
-        }
-
         var sb = new StringBuilder();
         sb.Append("{");
         sb.Append($"\"model\":\"{Escape(model)}\",");
@@ -163,12 +165,12 @@ public class OpenAIClient : MonoBehaviour
         sb.Append("]}");
         string json = sb.ToString();
 
-        using var req = new UnityWebRequest(Endpoint, "POST");
+        using var req = new UnityWebRequest(ActiveEndpoint, "POST");
         req.uploadHandler   = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
         req.downloadHandler = new DownloadHandlerBuffer();
         req.timeout         = Mathf.CeilToInt(timeoutSeconds);
         req.SetRequestHeader("Content-Type", "application/json");
-        req.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
+        if (!UseProxy) req.SetRequestHeader("Authorization", "Bearer " + openAIApiKey);
 
         yield return req.SendWebRequest();
 
