@@ -30,6 +30,7 @@ public class SimpleFPSController : MonoBehaviour
 
     void HandleMouseLook()
     {
+        if (Mouse.current == null) return;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
         float mouseX = mouseDelta.x * mouseSensitivity * Time.deltaTime;
         float mouseY = mouseDelta.y * mouseSensitivity * Time.deltaTime;

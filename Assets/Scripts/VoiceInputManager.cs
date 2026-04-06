@@ -312,54 +312,28 @@ public class VoiceInputManager : MonoBehaviour
 
         using (MemoryStream stream = new MemoryStream())
         {
-            int hz = clip.frequency;
+            int hz       = clip.frequency;
             int channels = clip.channels;
-            int samples_count = samples.Length;
+            int dataSize = bytesData.Length; // PCM data size in bytes
 
-            // Write WAV header
-            stream.Seek(0, SeekOrigin.Begin);
+            // RIFF chunk
+            stream.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"), 0, 4);
+            stream.Write(BitConverter.GetBytes(36 + dataSize), 0, 4); // file size - 8
+            stream.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"), 0, 4);
 
-            Byte[] riff = System.Text.Encoding.UTF8.GetBytes("RIFF");
-            stream.Write(riff, 0, 4);
+            // fmt  sub-chunk
+            stream.Write(System.Text.Encoding.UTF8.GetBytes("fmt "), 0, 4);
+            stream.Write(BitConverter.GetBytes(16), 0, 4);                        // sub-chunk size
+            stream.Write(BitConverter.GetBytes((UInt16)1), 0, 2);                 // PCM format
+            stream.Write(BitConverter.GetBytes((UInt16)channels), 0, 2);
+            stream.Write(BitConverter.GetBytes(hz), 0, 4);
+            stream.Write(BitConverter.GetBytes(hz * channels * 2), 0, 4);         // byte rate
+            stream.Write(BitConverter.GetBytes((UInt16)(channels * 2)), 0, 2);    // block align
+            stream.Write(BitConverter.GetBytes((UInt16)16), 0, 2);                // bits per sample
 
-            Byte[] chunkSize = BitConverter.GetBytes(stream.Length - 8);
-            stream.Write(chunkSize, 0, 4);
-
-            Byte[] wave = System.Text.Encoding.UTF8.GetBytes("WAVE");
-            stream.Write(wave, 0, 4);
-
-            Byte[] fmt = System.Text.Encoding.UTF8.GetBytes("fmt ");
-            stream.Write(fmt, 0, 4);
-
-            Byte[] subChunk1 = BitConverter.GetBytes(16);
-            stream.Write(subChunk1, 0, 4);
-
-            UInt16 one = 1;
-            Byte[] audioFormat = BitConverter.GetBytes(one);
-            stream.Write(audioFormat, 0, 2);
-
-            Byte[] numChannels = BitConverter.GetBytes(channels);
-            stream.Write(numChannels, 0, 2);
-
-            Byte[] sampleRate = BitConverter.GetBytes(hz);
-            stream.Write(sampleRate, 0, 4);
-
-            Byte[] byteRate = BitConverter.GetBytes(hz * channels * 2);
-            stream.Write(byteRate, 0, 4);
-
-            UInt16 blockAlign = (ushort)(channels * 2);
-            stream.Write(BitConverter.GetBytes(blockAlign), 0, 2);
-
-            UInt16 bps = 16;
-            Byte[] bitsPerSample = BitConverter.GetBytes(bps);
-            stream.Write(bitsPerSample, 0, 2);
-
-            Byte[] datastring = System.Text.Encoding.UTF8.GetBytes("data");
-            stream.Write(datastring, 0, 4);
-
-            Byte[] subChunk2 = BitConverter.GetBytes(samples_count * channels * 2);
-            stream.Write(subChunk2, 0, 4);
-
+            // data sub-chunk
+            stream.Write(System.Text.Encoding.UTF8.GetBytes("data"), 0, 4);
+            stream.Write(BitConverter.GetBytes(dataSize), 0, 4);
             stream.Write(bytesData, 0, bytesData.Length);
 
             return stream.ToArray();

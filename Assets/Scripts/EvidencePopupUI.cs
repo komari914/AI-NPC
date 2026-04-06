@@ -158,12 +158,19 @@ public class EvidencePopupUI : MonoBehaviour
         previewCamera?.gameObject.SetActive(false);
     }
 
-    static void SetLayerRecursive(GameObject obj, int layer)
+    static void SetLayerRecursive(GameObject root, int layer)
     {
         if (layer < 0) return; // layer not found — skip silently
-        obj.layer = layer;
-        foreach (Transform child in obj.transform)
-            SetLayerRecursive(child.gameObject, layer);
+        // Iterative BFS to avoid JS call-stack overflow in WebGL for deep hierarchies
+        var queue = new System.Collections.Generic.Queue<Transform>();
+        queue.Enqueue(root.transform);
+        while (queue.Count > 0)
+        {
+            Transform t = queue.Dequeue();
+            t.gameObject.layer = layer;
+            foreach (Transform child in t)
+                queue.Enqueue(child);
+        }
     }
 
     bool IsPointerOverRawImage(Vector2 screenPos)

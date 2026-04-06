@@ -30,7 +30,6 @@ public class UIHintController : MonoBehaviour
     public void Show(string message)
     {
         if (hintText == null) return;
-        Debug.Log("UI Show called: " + message);
 
         hintText.text = message;
         hintText.gameObject.SetActive(true);
