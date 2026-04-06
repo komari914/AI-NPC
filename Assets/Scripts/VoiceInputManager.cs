@@ -6,6 +6,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Networking;
+using UnityEngine.UI;
 
 public class VoiceInputManager : MonoBehaviour
 {
@@ -35,6 +36,11 @@ public class VoiceInputManager : MonoBehaviour
     [Header("References")]
     public MentorNPC mentorNPC;
 
+    [Header("Voice Panel (WebGL)")]
+    [Tooltip("Panel shown when player presses V — contains the Hold to Speak button.")]
+    public GameObject voicePanel;
+    public Button     recordButton;
+
     [Header("Audio Settings")]
     public AudioSource audioSource;
     public bool playbackRecording = false; // For debugging
@@ -61,6 +67,23 @@ public class VoiceInputManager : MonoBehaviour
             audioSource = gameObject.AddComponent<AudioSource>();
 
         HideRecordingIndicator();
+        voicePanel?.SetActive(false);
+
+        // Button-based recording — reliable user gesture for WebGL microphone permission
+        if (recordButton != null)
+        {
+            var trigger = recordButton.gameObject.AddComponent<UnityEngine.EventSystems.EventTrigger>();
+
+            var pressEntry = new UnityEngine.EventSystems.EventTrigger.Entry
+                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerDown };
+            pressEntry.callback.AddListener(_ => StartRecording());
+            trigger.triggers.Add(pressEntry);
+
+            var releaseEntry = new UnityEngine.EventSystems.EventTrigger.Entry
+                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerUp };
+            releaseEntry.callback.AddListener(_ => { StopRecording(); CloseVoicePanel(); });
+            trigger.triggers.Add(releaseEntry);
+        }
         StartCoroutine(InitMicrophone());
     }
 
@@ -106,33 +129,32 @@ public class VoiceInputManager : MonoBehaviour
 
         if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // In WebGL, V opens the voice panel — recording is triggered by the button inside
+        if (Keyboard.current[recordKey].wasPressedThisFrame)
+        {
+            if (voicePanel != null && !voicePanel.activeSelf)
+                OpenVoicePanel();
+        }
+        if (Keyboard.current.escapeKey.wasPressedThisFrame && voicePanel != null && voicePanel.activeSelf)
+            CloseVoicePanel();
+#else
         if (toggleMode)
         {
-            // Toggle mode: press once to start, press again to stop
             if (Keyboard.current[recordKey].wasPressedThisFrame)
             {
-                if (isRecording)
-                {
-                    StopRecording();
-                }
-                else
-                {
-                    StartRecording();
-                }
+                if (isRecording) StopRecording();
+                else             StartRecording();
             }
         }
         else
         {
-            // Push-to-talk mode: hold to record
             if (Keyboard.current[recordKey].wasPressedThisFrame)
-            {
                 StartRecording();
-            }
             else if (Keyboard.current[recordKey].wasReleasedThisFrame)
-            {
                 StopRecording();
-            }
         }
+#endif
 
         // Update recording time display
         if (isRecording && recordingText != null)
@@ -403,6 +425,20 @@ public class VoiceInputManager : MonoBehaviour
         {
             recordingText.text = "Hold V to speak";
         }
+    }
+
+    void OpenVoicePanel()
+    {
+        voicePanel?.SetActive(true);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible   = true;
+    }
+
+    void CloseVoicePanel()
+    {
+        voicePanel?.SetActive(false);
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible   = false;
     }
 
     // Called by JS plugin via SendMessage after WebGL transcription completes
