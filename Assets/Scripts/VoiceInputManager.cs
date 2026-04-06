@@ -40,6 +40,7 @@ public class VoiceInputManager : MonoBehaviour
     public bool playbackRecording = false; // For debugging
 
 #if UNITY_WEBGL && !UNITY_EDITOR
+    [DllImport("__Internal")] static extern void RequestMicrophonePermission();
     [DllImport("__Internal")] static extern void StartWebGLRecording();
     [DllImport("__Internal")] static extern void StopWebGLRecording(string apiKey, string goName, string callback);
 #endif
@@ -85,9 +86,10 @@ public class VoiceInputManager : MonoBehaviour
             UpdateStatus("Microphone permission denied.");
             yield break;
         }
-        // WebGL microphone initialised via browser — device name not needed
+        // Trigger the browser permission dialog immediately
         microphoneDevice = "";
-        Debug.Log("[VoiceInput] WebGL microphone authorised.");
+        RequestMicrophonePermission();
+        Debug.Log("[VoiceInput] WebGL microphone permission requested.");
 #endif
     }
 

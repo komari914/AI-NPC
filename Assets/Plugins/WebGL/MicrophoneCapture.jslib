@@ -7,6 +7,18 @@ var MicrophoneCaptureLib = {
         isRecording:   false
     },
 
+    RequestMicrophonePermission: function () {
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function (stream) {
+                // Permission granted — stop immediately, just needed the prompt
+                stream.getTracks().forEach(function (t) { t.stop(); });
+                console.log('[VoiceInput] Microphone permission granted.');
+            })
+            .catch(function (err) {
+                console.error('[VoiceInput] Microphone permission denied:', err);
+            });
+    },
+
     StartWebGLRecording: function () {
         if (mic.isRecording) return;
 
