@@ -1021,7 +1021,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 32f0629cfece2ba43b55a0d738d11b6a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TimerManager
-  totalDuration: 360
+  totalDuration: 60
   autoStart: 1
   isRunning: 0
   timeRemaining: 0
