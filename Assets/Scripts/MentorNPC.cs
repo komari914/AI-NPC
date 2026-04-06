@@ -305,9 +305,26 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
             return;
         }
 
-        // Step 2: player is explaining evidence for their accused suspect → evaluate
+        string systemPrompt = GetSystemPromptByPersona();
+        if (string.IsNullOrWhiteSpace(systemPrompt) || systemPrompt.StartsWith("(PASTE"))
+        {
+            subtitleUI.Show("Mentor Error: Please paste the persona system prompt into MentorNPC.");
+            return;
+        }
+
+        // Step 2: already waiting for evidence — but check if player is switching suspects first
         if (awaitingEvidenceForSuspect != null)
         {
+            if (MentionsSuspect(latestPlayerInput))
+            {
+                // Player may be changing their mind — classify before evaluating
+                subtitleUI.Show("Mentor: (thinking...)");
+                isBusy = true;
+                StartCoroutine(ClassifyAndRespond(latestPlayerInput, systemPrompt));
+                return;
+            }
+
+            // No suspect mentioned → treat as evidence for the current accusation
             string combined = $"Suspect: {awaitingEvidenceForSuspect}. Evidence: {latestPlayerInput}";
             awaitingEvidenceForSuspect = null;
             subtitleUI.Show("Mentor: (evaluating your reasoning...)");
@@ -316,91 +333,124 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
             return;
         }
 
-        // Step 1: player names a suspect → ask WHY, don't evaluate yet
-        if (LooksLikeConclusion(latestPlayerInput))
+        // Step 1: if the message mentions a suspect, ask GPT whether the player
+        // is accusing them or just talking about them
+        if (MentionsSuspect(latestPlayerInput))
         {
-            awaitingEvidenceForSuspect = ExtractSuspect(latestPlayerInput);
-            AskForEvidence(awaitingEvidenceForSuspect);
+            subtitleUI.Show("Mentor: (thinking...)");
+            isBusy = true;
+            StartCoroutine(ClassifyAndRespond(latestPlayerInput, systemPrompt));
             return;
         }
 
-        string systemPrompt = GetSystemPromptByPersona();
-        if (string.IsNullOrWhiteSpace(systemPrompt) || systemPrompt.StartsWith("(PASTE"))
-        {
-            subtitleUI.Show("Mentor Error: Please paste the persona system prompt into MentorNPC.");
-            return;
-        }
-
-        string userMessage = BuildUserMessage(latestPlayerInput);
-
+        // Normal conversation — no suspect mentioned
         subtitleUI.Show("Mentor: (thinking...)");
         isBusy = true;
-
         StartCoroutine(openAI.SendWithHistory(
-            systemPrompt,
-            GetTrimmedHistory(),
-            userMessage,
+            systemPrompt, GetTrimmedHistory(), BuildUserMessage(latestPlayerInput),
+            onResult: (text) => ProcessMentorReply(text),
+            onError:  (err) => { isBusy = false; subtitleUI.Show("Mentor Error: " + err); }
+        ));
+    }
+
+    // ── Intent classification ────────────────────────────────────────────────
+
+    bool MentionsSuspect(string input)
+    {
+        string s = input.ToLowerInvariant();
+        return s.Contains("alex") || s.Contains("project manager") ||
+               s.Contains(" pm ") || s.Contains("junior");
+    }
+
+    IEnumerator ClassifyAndRespond(string playerInput, string systemPrompt)
+    {
+        const string classifySystem =
+            "You are a classifier for a murder mystery game. Reply with exactly one word.\n" +
+            "ACCUSE = the player is explicitly naming a specific suspect as the killer or murderer.\n" +
+            "DISCUSS = the player is mentioning, asking about, or investigating a suspect for any other reason.\n" +
+            "Examples of ACCUSE: 'I think Alex did it', 'It was Alex', 'Alex is the killer', 'Alex killed Daniel'.\n" +
+            "Examples of DISCUSS: 'Let me start with Alex', 'Tell me about Alex', 'What about the PM?', 'I want to investigate the junior programmer'.";
+
+        bool done  = false;
+        string intent = "DISCUSS";
+
+        StartCoroutine(openAI.Send(
+            classifySystem,
+            playerInput,
             onResult: (text) =>
             {
-                isBusy = false;
-
-                string cleaned = (text ?? "").Trim();
-                Debug.Log($"[CHAT] Mentor: {cleaned}");
-
-                // Append both turns to history
-                // Store only the player's actual words (not the full context).
-                // Context is rebuilt fresh in every BuildUserMessage call.
-                conversationHistory.Add(new ChatMessage("user",      latestPlayerInput));
-                conversationHistory.Add(new ChatMessage("assistant", cleaned));
-                TrimHistory();
-
-                // Record mentor response
-                if (DataRecorder.Instance != null)
-                {
-                    string inputMethod = IsVoiceModality() ? "Voice" : "Text";
-                    DataRecorder.Instance.RecordConversation("Mentor", cleaned, inputMethod);
-                }
-
-                // In Voice modality: show persistent subtitle and wait for TTS
-                if (IsVoiceModality() && ttsManager != null)
-                {
-                    SetTalking(true);
-                    subtitleUI.ShowPersistent("Mentor: " + cleaned);
-
-                    ttsManager.Speak(cleaned,
-                        onComplete: () =>
-                        {
-                            Debug.Log("[MentorNPC] TTS completed");
-                            SetTalking(false);
-                            if (subtitleUI != null)
-                                StartCoroutine(ClearSubtitleAfterDelay(1.0f));
-                        },
-                        onError: (err) =>
-                        {
-                            Debug.LogError($"[MentorNPC] TTS Error: {err}");
-                            SetTalking(false);
-                            subtitleUI?.Clear();
-                        }
-                    );
-                }
-                else
-                {
-                    SetTalking(true);
-                    subtitleUI.Show("Mentor: " + cleaned);
-                    // Estimate talking duration from reply length (~50ms per char, min 3s)
-                    StartCoroutine(StopTalkingAfterDelay(Mathf.Max(3f, cleaned.Length * 0.05f)));
-                }
-
-                // First successful exchange advances Overview → Investigate
-                if (progress != null && !progress.hasHadFirstMentorTalk)
-                    progress.MarkFirstMentorTalkFinished();
+                intent = (text ?? "").Trim().ToUpper().StartsWith("ACCUSE") ? "ACCUSE" : "DISCUSS";
+                done   = true;
             },
-            onError: (err) =>
-            {
-                isBusy = false;
-                subtitleUI.Show("Mentor Error: " + err);
-            }
+            onError: _ => { done = true; } // default to DISCUSS on error — avoids false accusations
         ));
+
+        yield return new WaitUntil(() => done);
+
+        isBusy = false;
+
+        if (intent == "ACCUSE")
+        {
+            awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
+            AskForEvidence(awaitingEvidenceForSuspect);
+        }
+        else
+        {
+            subtitleUI.Show("Mentor: (thinking...)");
+            isBusy = true;
+            StartCoroutine(openAI.SendWithHistory(
+                systemPrompt, GetTrimmedHistory(), BuildUserMessage(playerInput),
+                onResult: (text) => ProcessMentorReply(text),
+                onError:  (err) => { isBusy = false; subtitleUI.Show("Mentor Error: " + err); }
+            ));
+        }
+    }
+
+    void ProcessMentorReply(string text)
+    {
+        isBusy = false;
+
+        string cleaned = (text ?? "").Trim();
+        Debug.Log($"[CHAT] Mentor: {cleaned}");
+
+        conversationHistory.Add(new ChatMessage("user",      latestPlayerInput));
+        conversationHistory.Add(new ChatMessage("assistant", cleaned));
+        TrimHistory();
+
+        if (DataRecorder.Instance != null)
+        {
+            string inputMethod = IsVoiceModality() ? "Voice" : "Text";
+            DataRecorder.Instance.RecordConversation("Mentor", cleaned, inputMethod);
+        }
+
+        if (IsVoiceModality() && ttsManager != null)
+        {
+            SetTalking(true);
+            subtitleUI.ShowPersistent("Mentor: " + cleaned);
+            ttsManager.Speak(cleaned,
+                onComplete: () =>
+                {
+                    Debug.Log("[MentorNPC] TTS completed");
+                    SetTalking(false);
+                    if (subtitleUI != null) StartCoroutine(ClearSubtitleAfterDelay(1.0f));
+                },
+                onError: (err) =>
+                {
+                    Debug.LogError($"[MentorNPC] TTS Error: {err}");
+                    SetTalking(false);
+                    subtitleUI?.Clear();
+                }
+            );
+        }
+        else
+        {
+            SetTalking(true);
+            subtitleUI.Show("Mentor: " + cleaned);
+            StartCoroutine(StopTalkingAfterDelay(Mathf.Max(3f, cleaned.Length * 0.05f)));
+        }
+
+        if (progress != null && !progress.hasHadFirstMentorTalk)
+            progress.MarkFirstMentorTalkFinished();
     }
 
     /// <summary>Returns true if the player is within talk distance. Falls back to true if no player ref is set.</summary>
@@ -788,13 +838,6 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
     }
 
     // --- Final answer evaluation helpers ---
-    bool LooksLikeConclusion(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input)) return false;
-        string s = input.ToLowerInvariant();
-        return s.Contains("alex") || s.Contains("project manager") || s.Contains("pm") || s.Contains("junior");
-    }
-
     bool LooksLikeGivingUp(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return false;
