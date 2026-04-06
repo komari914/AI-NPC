@@ -6,7 +6,6 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Networking;
-using UnityEngine.UI;
 
 public class VoiceInputManager : MonoBehaviour
 {
@@ -36,17 +35,11 @@ public class VoiceInputManager : MonoBehaviour
     [Header("References")]
     public MentorNPC mentorNPC;
 
-    [Header("Voice Panel (WebGL)")]
-    [Tooltip("Panel shown when player presses V — contains the Hold to Speak button.")]
-    public GameObject voicePanel;
-    public Button     recordButton;
-
     [Header("Audio Settings")]
     public AudioSource audioSource;
     public bool playbackRecording = false; // For debugging
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-    [DllImport("__Internal")] static extern void RequestMicrophonePermission();
     [DllImport("__Internal")] static extern void StartWebGLRecording();
     [DllImport("__Internal")] static extern void StopWebGLRecording(string apiKey, string goName, string callback);
 #endif
@@ -67,23 +60,6 @@ public class VoiceInputManager : MonoBehaviour
             audioSource = gameObject.AddComponent<AudioSource>();
 
         HideRecordingIndicator();
-        voicePanel?.SetActive(false);
-
-        // Button-based recording — reliable user gesture for WebGL microphone permission
-        if (recordButton != null)
-        {
-            var trigger = recordButton.gameObject.AddComponent<UnityEngine.EventSystems.EventTrigger>();
-
-            var pressEntry = new UnityEngine.EventSystems.EventTrigger.Entry
-                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerDown };
-            pressEntry.callback.AddListener(_ => StartRecording());
-            trigger.triggers.Add(pressEntry);
-
-            var releaseEntry = new UnityEngine.EventSystems.EventTrigger.Entry
-                { eventID = UnityEngine.EventSystems.EventTriggerType.PointerUp };
-            releaseEntry.callback.AddListener(_ => { StopRecording(); CloseVoicePanel(); });
-            trigger.triggers.Add(releaseEntry);
-        }
         StartCoroutine(InitMicrophone());
     }
 
@@ -102,17 +78,10 @@ public class VoiceInputManager : MonoBehaviour
             UpdateStatus("No microphone found.");
         }
 #else
-        yield return Application.RequestUserAuthorization(UserAuthorization.Microphone);
-        if (!Application.HasUserAuthorization(UserAuthorization.Microphone))
-        {
-            Debug.LogError("[VoiceInput] Microphone permission denied.");
-            UpdateStatus("Microphone permission denied.");
-            yield break;
-        }
-        // Trigger the browser permission dialog immediately
-        microphoneDevice = "";
-        RequestMicrophonePermission();
-        Debug.Log("[VoiceInput] WebGL microphone permission requested.");
+        // WebGL — permission is requested automatically when StartWebGLRecording is first called
+        microphoneDevice = "webgl";
+        yield return null;
+        Debug.Log("[VoiceInput] WebGL mode ready.");
 #endif
     }
 
@@ -129,16 +98,6 @@ public class VoiceInputManager : MonoBehaviour
 
         if (DialogueInputUI.Instance != null && DialogueInputUI.Instance.IsOpen) return;
 
-#if UNITY_WEBGL && !UNITY_EDITOR
-        // In WebGL, V opens the voice panel — recording is triggered by the button inside
-        if (Keyboard.current[recordKey].wasPressedThisFrame)
-        {
-            if (voicePanel != null && !voicePanel.activeSelf)
-                OpenVoicePanel();
-        }
-        if (Keyboard.current.escapeKey.wasPressedThisFrame && voicePanel != null && voicePanel.activeSelf)
-            CloseVoicePanel();
-#else
         if (toggleMode)
         {
             if (Keyboard.current[recordKey].wasPressedThisFrame)
@@ -154,7 +113,6 @@ public class VoiceInputManager : MonoBehaviour
             else if (Keyboard.current[recordKey].wasReleasedThisFrame)
                 StopRecording();
         }
-#endif
 
         // Update recording time display
         if (isRecording && recordingText != null)
@@ -182,12 +140,14 @@ public class VoiceInputManager : MonoBehaviour
             return;
         }
 
+#if !UNITY_WEBGL || UNITY_EDITOR
         if (string.IsNullOrEmpty(microphoneDevice))
         {
             Debug.LogError("[VoiceInput] No microphone available!");
             UpdateStatus("No microphone found!");
             return;
         }
+#endif
 
         Debug.Log("[VoiceInput] Starting recording...");
         isRecording = true;
@@ -425,20 +385,6 @@ public class VoiceInputManager : MonoBehaviour
         {
             recordingText.text = "Hold V to speak";
         }
-    }
-
-    void OpenVoicePanel()
-    {
-        voicePanel?.SetActive(true);
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible   = true;
-    }
-
-    void CloseVoicePanel()
-    {
-        voicePanel?.SetActive(false);
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible   = false;
     }
 
     // Called by JS plugin via SendMessage after WebGL transcription completes
