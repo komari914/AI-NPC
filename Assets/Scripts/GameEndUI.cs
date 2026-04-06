@@ -9,6 +9,7 @@ public class GameEndUI : MonoBehaviour
     public TextMeshProUGUI resultText;
     public TextMeshProUGUI timeText;
     public TextMeshProUGUI messageText;
+    public TextMeshProUGUI surveyText;
 
     [Header("Buttons")]
     public Button nextScenarioButton;
@@ -16,6 +17,14 @@ public class GameEndUI : MonoBehaviour
     [Header("Colors")]
     public Color successColor = Color.green;
     public Color failureColor = Color.red;
+
+    [Header("Survey Reminder")]
+    [Tooltip("Shown between scenarios")]
+    [TextArea(2, 4)]
+    public string surveyMessageMid  = "Please complete the survey for this session before clicking Next Scenario.";
+    [Tooltip("Shown after the final scenario")]
+    [TextArea(2, 4)]
+    public string surveyMessageFinal = "Please complete the final survey before closing the browser. Thank you for participating!";
 
     void Start()
     {
@@ -72,8 +81,12 @@ public class GameEndUI : MonoBehaviour
             messageText.text = message;
 
         // Show next-scenario button only if this isn't the last in the play order
-        if (nextScenarioButton != null && ScenarioManager.Instance != null)
-            nextScenarioButton.gameObject.SetActive(!ScenarioManager.Instance.IsLastScenario);
+        bool isLast = ScenarioManager.Instance != null && ScenarioManager.Instance.IsLastScenario;
+        if (nextScenarioButton != null)
+            nextScenarioButton.gameObject.SetActive(!isLast);
+
+        // Survey reminder — different text for mid-study vs final scenario
+        if (surveyText != null) surveyText.text = isLast ? surveyMessageFinal : surveyMessageMid;
 
         DataRecorder.Instance?.EndSession();
 

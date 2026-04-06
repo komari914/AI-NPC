@@ -50,9 +50,7 @@ public class DataRecorder : MonoBehaviour
 {
     public static DataRecorder Instance { get; private set; }
 
-    [Header("Participant")]
-    [Tooltip("Set a unique ID for each participant before the session")]
-    public string playerId = "P001";
+    // Player ID is now managed automatically by ScenarioManager (auto-increments per participant)
 
     [Header("Google Sheets")]
     [Tooltip("Paste your Google Apps Script Web App URL here")]
@@ -102,7 +100,7 @@ public class DataRecorder : MonoBehaviour
         currentSession = new SessionData
         {
             sessionId = DateTime.Now.ToString("yyyyMMdd_HHmmss"),
-            playerId  = this.playerId,
+            playerId  = ScenarioManager.Instance != null ? ScenarioManager.Instance.PlayerID : "P000",
             startTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
         };
 

@@ -45,17 +45,20 @@ public class ScenarioManager : MonoBehaviour
     [Range(1, 4)]
     public int  debugScenarioIndex = 1;
 
-    // Fixed play order for all participants:
-    // 1st: Scenario 3 (TaskFocused + Text)
-    // 2nd: Scenario 2 (Empathic    + Voice)
-    // 3rd: Scenario 1 (Empathic    + Text)
-    // 4th: Scenario 4 (TaskFocused + Voice)
-    private static readonly int[] PlayOrder = { 3, 2, 1, 4 };
+    // Randomised per participant — generated fresh on every new launch
+    private int[] _playOrder = { 1, 2, 3, 4 };
 
-    private const string KeyPosition = "ScenarioPosition"; // 0–3
+    private const string KeyPosition  = "ScenarioPosition"; // 0–3
+    private const string KeyPlayerID  = "PlayerID";
+    private const string KeyPlayOrder = "PlayOrder";        // stored as "2,4,1,3"
 
-    public int  CurrentOrderPosition { get; private set; }
-    public bool IsLastScenario       => CurrentOrderPosition >= PlayOrder.Length - 1;
+    // True only when NextScenario() reloads the scene mid-session.
+    // Clears automatically on fresh Play Mode entry (editor) or fresh browser load (WebGL).
+    private static bool _isMidSessionReload = false;
+
+    public int    CurrentOrderPosition { get; private set; }
+    public bool   IsLastScenario       => CurrentOrderPosition >= _playOrder.Length - 1;
+    public string PlayerID             { get; private set; } = "P001";
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -75,27 +78,76 @@ public class ScenarioManager : MonoBehaviour
     void OnGUI()
     {
         if (!showOverlay) return;
-        GUI.Box  (new Rect(10, 10, 320, 90), "Scenario Status");
-        GUI.Label(new Rect(20, 35, 300, 20), $"Step: {CurrentOrderPosition + 1} / 4");
-        GUI.Label(new Rect(20, 55, 300, 20), $"Scenario {scenarioIndex}: {persona}");
-        GUI.Label(new Rect(20, 75, 300, 20), $"Modality: {modality}");
+        GUI.Box  (new Rect(10, 10, 320, 70), "Session Info");
+        GUI.Label(new Rect(20, 35, 300, 20), $"Player: {PlayerID}");
+        GUI.Label(new Rect(20, 55, 300, 20), $"Scenario: {scenarioIndex}   |   Modality: {modality}");
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
 
     void Initialise()
     {
+        if (_isMidSessionReload)
+        {
+            // Scene was reloaded by NextScenario() — keep the same ID and order
+            _isMidSessionReload      = false;
+            PlayerID                 = PlayerPrefs.GetString(KeyPlayerID, "P001");
+            _playOrder               = LoadPlayOrder();
+            CurrentOrderPosition     = Mathf.Clamp(PlayerPrefs.GetInt(KeyPosition, 0), 0, _playOrder.Length - 1);
+        }
+        else
+        {
+            // Fresh launch (new Play Mode session, new browser load, or after ResetProgress)
+            GenerateNewPlayerID();
+            GenerateNewPlayOrder();
+            CurrentOrderPosition = 0;
+            PlayerPrefs.SetInt(KeyPosition, 0);
+            PlayerPrefs.Save();
+        }
+
 #if UNITY_EDITOR
         if (debugOverride)
         {
-            CurrentOrderPosition = 0; // irrelevant in debug mode
+            CurrentOrderPosition = 0;
             ApplyConfig(GetScenarioConfigByIndex(debugScenarioIndex));
             Debug.Log($"[ScenarioManager] DEBUG OVERRIDE — Scenario {debugScenarioIndex} ({persona} + {modality})");
             return;
         }
 #endif
-        CurrentOrderPosition = Mathf.Clamp(PlayerPrefs.GetInt(KeyPosition, 0), 0, PlayOrder.Length - 1);
-        ApplyConfig(GetScenarioConfigByIndex(PlayOrder[CurrentOrderPosition]));
+        ApplyConfig(GetScenarioConfigByIndex(_playOrder[CurrentOrderPosition]));
+    }
+
+    void GenerateNewPlayerID()
+    {
+        // Timestamp-based ID — unique across different devices/browsers in WebGL
+        PlayerID = "P" + System.DateTime.Now.ToString("MMddHHmmss");
+        PlayerPrefs.SetString(KeyPlayerID, PlayerID);
+        PlayerPrefs.Save();
+        Debug.Log($"[ScenarioManager] New Player ID assigned: {PlayerID}");
+    }
+
+    void GenerateNewPlayOrder()
+    {
+        // Fisher-Yates shuffle of [1, 2, 3, 4]
+        _playOrder = new int[] { 1, 2, 3, 4 };
+        for (int i = _playOrder.Length - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            (_playOrder[i], _playOrder[j]) = (_playOrder[j], _playOrder[i]);
+        }
+        PlayerPrefs.SetString(KeyPlayOrder, string.Join(",", _playOrder));
+        PlayerPrefs.Save();
+        Debug.Log($"[ScenarioManager] New play order: {string.Join(", ", _playOrder)}");
+    }
+
+    int[] LoadPlayOrder()
+    {
+        string saved = PlayerPrefs.GetString(KeyPlayOrder, "1,2,3,4");
+        string[] parts = saved.Split(',');
+        int[] order = new int[parts.Length];
+        for (int i = 0; i < parts.Length; i++)
+            int.TryParse(parts[i], out order[i]);
+        return order;
     }
 
     void ApplyConfig(ScenarioConfig config)
@@ -116,6 +168,7 @@ public class ScenarioManager : MonoBehaviour
             return;
         }
 
+        _isMidSessionReload = true; // tell Initialise() this is a scene reload, not a fresh start
         PlayerPrefs.SetInt(KeyPosition, CurrentOrderPosition + 1);
         PlayerPrefs.Save();
 
@@ -129,9 +182,12 @@ public class ScenarioManager : MonoBehaviour
     /// </summary>
     public void ResetProgress()
     {
+        _isMidSessionReload = false; // ensure Initialise() treats next load as a fresh start
+        GenerateNewPlayerID();
+        GenerateNewPlayOrder();
         PlayerPrefs.SetInt(KeyPosition, 0);
         PlayerPrefs.Save();
-        Debug.Log("[ScenarioManager] Progress reset — starting from step 1.");
+        Debug.Log($"[ScenarioManager] Progress reset — new participant {PlayerID}, order: {string.Join(", ", _playOrder)}");
 
         Time.timeScale = 1f;
         SceneManager.LoadScene(gameSceneName);

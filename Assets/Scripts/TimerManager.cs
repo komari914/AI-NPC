@@ -24,7 +24,7 @@ public class TimerManager : MonoBehaviour
     public UnityEvent onTimerWarning; // Triggered at 1 minute remaining
 
     [Header("Warnings")]
-    public float warningTime = 60f; // Show warning at 1 minute
+    public float warningTime = 45f; // Show warning at 45 seconds
     private bool warningTriggered = false;
 
     [Header("Auto End Game")]

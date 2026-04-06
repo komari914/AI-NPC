@@ -495,6 +495,15 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
 - End with 1–2 suggested areas to inspect next.";
                     break;
 
+                case CasePhase.FinalQuestion:
+                    phaseInstruction =
+@"Task (Final phase — time is running out):
+- You just asked the player if they have found the killer. They are responding now.
+- If they name a suspect, acknowledge and ask them to back it up with evidence.
+- If they say they haven't found the killer or don't know, respond with understanding and wrap up.
+- Do NOT confirm the correct answer. Keep the response brief (1–2 sentences).";
+                    break;
+
                 case CasePhase.Investigate:
                 case CasePhase.FocusOnClue:
                     phaseInstruction =
@@ -506,14 +515,6 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
 - Do NOT finalize or confirm the culprit under any circumstances during this phase.";
                     break;
 
-                case CasePhase.FinalQuestion:
-                    phaseInstruction =
-@"Task (Final phase — time is running out):
-- You just asked the player if they have found the killer. They are responding now.
-- If they name a suspect, acknowledge and ask them to back it up with evidence.
-- If they say they haven't found the killer or don't know, respond with understanding and wrap up.
-- Do NOT confirm the correct answer. Keep the response brief (1–2 sentences).";
-                    break;
             }
         }
 
@@ -711,7 +712,7 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
 
     // --- FinalQuestion phase: proactive mentor prompt ---
 
-    /// <summary>Called by TimerManager when the warning fires. Mentor asks the player for their conclusion.</summary>
+    /// <summary>Called by TimerManager when the warning fires.</summary>
     public void StartFinalPhasePrompt()
     {
         if (!openingFinished) return;
@@ -720,8 +721,8 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
 
     IEnumerator PlayFinalPhasePromptRoutine()
     {
-        // Wait if NPC is mid-sentence
-        yield return new WaitUntil(() => !isBusy);
+        // Wait until the NPC finishes both the API call and any ongoing TTS
+        yield return new WaitUntil(() => !isBusy && (ttsManager == null || !ttsManager.IsBusy()));
 
         string prompt = "Time is almost up. Have you figured out who killed Daniel — and why?";
         SetTalking(true);
