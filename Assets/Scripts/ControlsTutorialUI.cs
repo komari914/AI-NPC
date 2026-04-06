@@ -67,12 +67,16 @@ public class ControlsTutorialUI : MonoBehaviour
 
     // ─── Unity lifecycle ──────────────────────────────────────────────────────
 
-    void Start()
+    void Awake()
     {
-        // Prevent MentorNPC from starting the opening until we dismiss
+        // All Awake() calls finish before any Start() runs, so this is guaranteed
+        // to execute before MentorNPC.Start() checks playOpeningOnStart.
         if (mentorNPC != null)
             mentorNPC.playOpeningOnStart = false;
+    }
 
+    void Start()
+    {
         // Freeze player controls while panel is shown
         if (fpsController    != null) fpsController.enabled    = false;
         if (playerInteraction != null) playerInteraction.enabled = false;
