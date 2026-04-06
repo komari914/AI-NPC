@@ -128,6 +128,15 @@
 
       document.body.appendChild(script);
 
+      // Resume Web Audio on first click (browser suspends AudioContext until user gesture).
+      // The controls-panel "Start" button is that first click, so audio is ready
+      // exactly when the NPC begins speaking.
+      document.addEventListener("click", function resumeAudio() {
+        if (typeof WEBAudio !== "undefined" && WEBAudio.audioContext)
+          WEBAudio.audioContext.resume();
+        document.removeEventListener("click", resumeAudio);
+      });
+
     </script>
   </body>
 </html>
