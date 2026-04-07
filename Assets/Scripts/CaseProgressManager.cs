@@ -26,9 +26,6 @@ public class CaseProgressManager : MonoBehaviour
     public string currentFocusClueId = "";  // 例如 "A5_WIFI_LOG"
 
     [Header("Final Answer Settings")]
-    [Tooltip("收集到这些证据后，进入 FinalQuestion（导师要求玩家给出结论）。")]
-    public string[] evidenceRequiredForFinal = new string[] { "A3", "P3", "J2", "J3" };
-
     [Tooltip("正确凶手名字（用于代码判定）。建议用 'Alex'。")]
     public string correctKillerName = "Alex";
 
@@ -80,14 +77,6 @@ public class CaseProgressManager : MonoBehaviour
     public bool HasClue(string evidenceId) => inspected.ContainsKey(evidenceId);
 
     public int InspectedCount() => inspected.Count;
-
-    public bool IsReadyForFinal()
-    {
-        if (evidenceRequiredForFinal == null || evidenceRequiredForFinal.Length == 0)
-            return false;
-
-        return evidenceRequiredForFinal.All(id => !string.IsNullOrWhiteSpace(id) && inspected.ContainsKey(id));
-    }
 
     public void MarkResolved()
     {

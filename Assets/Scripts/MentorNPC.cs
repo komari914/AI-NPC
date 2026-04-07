@@ -118,6 +118,8 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
     // Two-step accusation state:
     // non-null = player has named a suspect, waiting for their evidence explanation
     private string awaitingEvidenceForSuspect = null;
+    // Accumulated evidence across multiple turns for the same accusation
+    private string _accumulatedEvidence = "";
 
     void Start()
     {
@@ -325,8 +327,13 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
             }
 
             // No suspect mentioned → treat as evidence for the current accusation
-            string combined = $"Suspect: {awaitingEvidenceForSuspect}. Evidence: {latestPlayerInput}";
+            // Combine with any previously provided evidence so the AI sees the full picture
+            string evidenceSoFar = string.IsNullOrWhiteSpace(_accumulatedEvidence)
+                ? latestPlayerInput
+                : _accumulatedEvidence + " " + latestPlayerInput;
+            string combined = $"Suspect: {awaitingEvidenceForSuspect}. Evidence: {evidenceSoFar}";
             awaitingEvidenceForSuspect = null;
+            _accumulatedEvidence = "";
             subtitleUI.Show("Mentor: (evaluating your reasoning...)");
             isBusy = true;
             StartCoroutine(EvaluateConclusionWithAI(combined));
@@ -366,12 +373,14 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
     {
         const string classifySystem =
             "You are a classifier for a murder mystery game. Reply with exactly one word.\n" +
-            "ACCUSE = the player is explicitly naming a specific suspect as the killer or murderer.\n" +
-            "DISCUSS = the player is mentioning, asking about, or investigating a suspect for any other reason.\n" +
-            "Examples of ACCUSE: 'I think Alex did it', 'It was Alex', 'Alex is the killer', 'Alex killed Daniel'.\n" +
-            "Examples of DISCUSS: 'Let me start with Alex', 'Tell me about Alex', 'What about the PM?', 'I want to investigate the junior programmer'.";
+            "ACCUSE_WITH_EVIDENCE = the player names a specific suspect as the killer AND provides reasoning or evidence (however brief).\n" +
+            "ACCUSE = the player names a specific suspect as the killer but gives no reasoning or evidence.\n" +
+            "DISCUSS = the player mentions or asks about a suspect without accusing them.\n" +
+            "Examples of ACCUSE_WITH_EVIDENCE: 'I think Alex did it because of the Wi-Fi log', 'Alex is the killer — his receipt has no late night fee', 'It was Alex, the laptop proves he was there'.\n" +
+            "Examples of ACCUSE: 'I think Alex did it', 'It was Alex', 'Alex is the killer'.\n" +
+            "Examples of DISCUSS: 'Let me start with Alex', 'Tell me about Alex', 'What about the PM?'.";
 
-        bool done  = false;
+        bool done     = false;
         string intent = "DISCUSS";
 
         StartCoroutine(openAI.Send(
@@ -379,8 +388,11 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
             playerInput,
             onResult: (text) =>
             {
-                intent = (text ?? "").Trim().ToUpper().StartsWith("ACCUSE") ? "ACCUSE" : "DISCUSS";
-                done   = true;
+                string t = (text ?? "").Trim().ToUpper();
+                if      (t.StartsWith("ACCUSE_WITH_EVIDENCE")) intent = "ACCUSE_WITH_EVIDENCE";
+                else if (t.StartsWith("ACCUSE"))               intent = "ACCUSE";
+                else                                           intent = "DISCUSS";
+                done = true;
             },
             onError: _ => { done = true; } // default to DISCUSS on error — avoids false accusations
         ));
@@ -389,13 +401,30 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
 
         isBusy = false;
 
-        if (intent == "ACCUSE")
+        if (intent == "ACCUSE_WITH_EVIDENCE")
         {
+            // Player named a suspect AND gave evidence — skip straight to evaluation
+            string suspect = ExtractSuspect(playerInput);
+            // Combine with any previously accumulated evidence
+            string evidenceSoFar = string.IsNullOrWhiteSpace(_accumulatedEvidence)
+                ? playerInput
+                : _accumulatedEvidence + " " + playerInput;
+            string combined = $"Suspect: {suspect}. Evidence: {evidenceSoFar}";
+            awaitingEvidenceForSuspect = null;
+            _accumulatedEvidence = "";
+            subtitleUI.Show("Mentor: (evaluating your reasoning...)");
+            isBusy = true;
+            StartCoroutine(EvaluateConclusionWithAI(combined));
+        }
+        else if (intent == "ACCUSE")
+        {
+            // Player named a suspect but gave no evidence — ask for it
             awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
             AskForEvidence(awaitingEvidenceForSuspect);
         }
         else
         {
+            // Just discussing — normal conversation
             subtitleUI.Show("Mentor: (thinking...)");
             isBusy = true;
             StartCoroutine(openAI.SendWithHistory(
@@ -599,9 +628,10 @@ You are the player's mentor / team leader. Guide reasoning from collected eviden
             isBusy = false;
             awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
 
+            int needed = minKeyEvidenceToConvict - collected;
             string feedback = collected == 0
-                ? "That's an interesting lead, but you haven't collected enough evidence yet. Keep searching the scene."
-                : $"Good observation — that piece of evidence is relevant. But one clue isn't enough to close the case. You've found {collected} of the key pieces. Keep investigating.";
+                ? $"Interesting theory, but you need to gather more evidence first. Find at least {minKeyEvidenceToConvict} key pieces before drawing conclusions."
+                : $"You're building a case, but it's not strong enough yet. You've found {collected} of the {minKeyEvidenceToConvict} key evidence pieces needed — find {needed} more before accusing anyone.";
 
             ShowMentorReply(feedback);
             yield break;
@@ -625,7 +655,7 @@ VERDICT RULES — choose exactly ONE:
 
 Respond in EXACTLY this two-line format:
 VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
-<One short in-character mentor sentence — for CORRECT say the case is solved; for NEED_EVIDENCE name what additional evidence is still missing; for INCORRECT say the evidence doesn't hold up.>";
+<One short in-character mentor sentence — for CORRECT say the case is solved; for NEED_EVIDENCE name what additional evidence is still missing; for INCORRECT challenge the player's reasoning by pointing out why the evidence they cited doesn't hold up, without revealing who the real killer is.>";
 
         bool done      = false;
         string verdict = "INCORRECT";
@@ -670,18 +700,21 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
         if (isCorrect)
         {
             progress?.MarkResolved();
+            _accumulatedEvidence = "";
             Debug.Log("[CASE] Resolved via AI judgment.");
         }
         else if (verdict == "NEED_EVIDENCE")
         {
-            // Evidence too weak — keep waiting for better explanation
+            // Evidence too weak — keep waiting for better explanation, but remember what was said
             awaitingEvidenceForSuspect = ExtractSuspect(playerInput);
+            _accumulatedEvidence = playerInput; // save so next turn can build on it
             Debug.Log("[CASE] Evidence insufficient — re-asking for evidence.");
         }
         else
         {
             // INCORRECT — clear accusation state, player goes back to investigating
             awaitingEvidenceForSuspect = null;
+            _accumulatedEvidence = "";
             Debug.Log("[CASE] Incorrect reasoning — back to investigating.");
         }
 
@@ -858,10 +891,10 @@ VERDICT:<CORRECT|NEED_EVIDENCE|INCORRECT>
 
         if (!s.Contains(killer)) return false;
 
-        // Require referencing at least one key aspect (ID or keyword), to avoid pure guessing.
-        if (progress.evidenceRequiredForFinal != null && progress.evidenceRequiredForFinal.Length > 0)
+        // Require referencing at least one key evidence ID, to avoid pure guessing.
+        if (keyEvidenceIds != null && keyEvidenceIds.Length > 0)
         {
-            foreach (var id in progress.evidenceRequiredForFinal)
+            foreach (var id in keyEvidenceIds)
             {
                 if (string.IsNullOrWhiteSpace(id)) continue;
                 if (s.Contains(id.ToLowerInvariant())) return true;

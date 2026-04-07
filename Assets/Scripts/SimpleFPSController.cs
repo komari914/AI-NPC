@@ -7,7 +7,7 @@ public class SimpleFPSController : MonoBehaviour
     public float moveSpeed = 3.0f;
 
     [Header("Mouse Look")]
-    public float mouseSensitivity = 10f; // InputSystem 鼠标增量更大，通常用 5-20
+    public float mouseSensitivity = 3.0f;
     public Transform playerCamera;
 
     private float               xRotation   = 0f;
