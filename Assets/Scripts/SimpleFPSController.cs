@@ -7,7 +7,7 @@ public class SimpleFPSController : MonoBehaviour
     public float moveSpeed = 3.0f;
 
     [Header("Mouse Look")]
-    public float mouseSensitivity = 0.5f;
+    public float mouseSensitivity = 0.1f;
     public Transform playerCamera;
 
     private float               xRotation   = 0f;

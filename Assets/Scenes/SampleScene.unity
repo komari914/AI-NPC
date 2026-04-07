@@ -3337,11 +3337,6 @@ MonoBehaviour:
   phase: 0
   hasHadFirstMentorTalk: 0
   currentFocusClueId: 
-  evidenceRequiredForFinal:
-  - A3
-  - P3
-  - J2
-  - J3
   correctKillerName: Alex
 --- !u!4 &175864638
 Transform:
@@ -12343,7 +12338,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SimpleFPSController
   moveSpeed: 3
-  mouseSensitivity: 60
+  mouseSensitivity: 15
   playerCamera: {fileID: 330585546}
 --- !u!4 &629080847
 Transform:
