@@ -78,9 +78,13 @@ public class ScenarioManager : MonoBehaviour
     void OnGUI()
     {
         if (!showOverlay) return;
-        GUI.Box  (new Rect(10, 10, 320, 70), "Session Info");
-        GUI.Label(new Rect(20, 35, 300, 20), $"Player: {PlayerID}");
-        GUI.Label(new Rect(20, 55, 300, 20), $"Scenario: {scenarioIndex}   |   Modality: {modality}");
+        GUIStyle boxStyle = new GUIStyle(GUI.skin.box);
+        boxStyle.fontSize = 22;
+        GUIStyle labelStyle = new GUIStyle(GUI.skin.label);
+        labelStyle.fontSize = 22;
+        GUI.Box  (new Rect(10, 10, 500, 110), "Session Info", boxStyle);
+        GUI.Label(new Rect(20, 50, 480,  35), $"Player: {PlayerID}", labelStyle);
+        GUI.Label(new Rect(20, 85, 480,  35), $"Scenario: {scenarioIndex}   |   Modality: {modality}", labelStyle);
     }
 
     // ── Initialisation ────────────────────────────────────────────────────────
